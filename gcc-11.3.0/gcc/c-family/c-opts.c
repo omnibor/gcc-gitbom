@@ -41,6 +41,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "mkdeps.h"
 #include "dumpfile.h"
 #include "file-prefix-map.h"    /* add_*_prefix_map()  */
+#include "gitbom.h"
 
 #ifndef DOLLARS_IN_IDENTIFIERS
 # define DOLLARS_IN_IDENTIFIERS true
@@ -1253,6 +1254,47 @@ get_dump_info (int phase, dump_flags_t *flags)
   return original_dump_file;
 }
 
+/* Get the path of the directory where the resulting object file will be
+   stored, because the GitBOM information should be stored there as well,
+   in the default case (when GITBOM_DIR environment variable is not set
+   and -frecord-gitbom=<arg> is not used).  */
+
+void
+gitbom_get_destdir (const char *collect_gcc_options, std::string *res)
+{
+  std::string path = "";
+  std::string gcc_opts = collect_gcc_options;
+
+  size_t i = 0;
+  while ((i = gcc_opts.find (' ')) != std::string::npos)
+    {
+      if (strcmp ("'-o'", gcc_opts.substr (0, i).c_str ()) == 0)
+        {
+          gcc_opts.erase (0, i + 1);
+
+          if ((i = gcc_opts.find (' ')) != std::string::npos)
+            {
+              path = gcc_opts.substr (1, i - 2);
+	      gcc_opts.erase (0, i + 1);
+            }
+        }
+      else
+        gcc_opts.erase (0, i + 1);
+    }
+  /* Last argument cannot be '-o' because gcc error will be raised that a
+     filename is missing after that option in that case.  */
+  gcc_opts.erase (0, std::string::npos);
+
+  /* If there was a valid '-o' option, parse the directory part of the path
+     and put it in the res parameter.  */
+  i = path.find_last_of ('/');
+
+  if (i != std::string::npos)
+    *res = path.substr (0, i);
+  else
+    *res = "";
+}
+
 /* Common finish hook for the C, ObjC and C++ front ends.  */
 void
 c_common_finish (void)
@@ -1278,6 +1320,39 @@ c_common_finish (void)
 	    fatal_error (input_location, "opening dependency file %s: %m",
 			 deps_file);
 	}
+    }
+
+  /* If the calculation of the GitBOM information is enabled, do it here.  */
+  if (flag_record_gitbom || str_record_gitbom
+      || (getenv ("GITBOM_DIR") && strlen (getenv ("GITBOM_DIR")) > 0))
+    {
+      std::string gitbom_dir = "";
+
+      const char *env_gitbom = getenv ("GITBOM_DIR");
+      if (env_gitbom != NULL)
+        gitbom_dir = env_gitbom;
+      if (gitbom_dir == "")
+        {
+          if (str_record_gitbom)
+            gitbom_dir = str_record_gitbom;
+          else
+            {
+              std::string res = "";
+              gitbom_get_destdir (getenv ("COLLECT_GCC_OPTIONS"), &res);
+              if (res.length () > 0)
+                gitbom_dir = res;
+              else
+                gitbom_dir = "";
+            }
+        }
+
+      std::string gitoid = "";
+      if (gitbom_dir.length () > 0)
+        gitoid = deps_write_gitbom (parse_in, gitbom_dir.c_str());
+      else
+        gitoid = deps_write_gitbom (parse_in, NULL);
+      if (gitoid != "")
+        elf_record_gitbom_write_gitoid (gitoid);
     }
 
   /* For performance, avoid tearing down cpplib's internal structures

@@ -949,12 +949,17 @@ _cpp_stack_file (cpp_reader *pfile, _cpp_file *file, include_type type,
 	sysp = MAX (pfile->buffer->sysp, file->dir->sysp);
 
       /* Add the file to the dependencies on its first inclusion.  */
-      if (CPP_OPTION (pfile, deps.style) > (sysp != 0)
-	  && !file->stack_count
-	  && file->path[0]
-	  && !(pfile->main_file == file
-	       && CPP_OPTION (pfile, deps.ignore_main_file)))
-	deps_add_dep (pfile->deps, file->path);
+      if ((CPP_OPTION (pfile, deps.style) > (sysp != 0)
+           || gitbom_enabled)
+	   && !file->stack_count
+	   && file->path[0]
+	   && !(pfile->main_file == file
+	        && CPP_OPTION (pfile, deps.ignore_main_file)))
+        {
+	  if (!pfile->deps)
+            pfile->deps = deps_init ();
+	  deps_add_dep (pfile->deps, file->path);
+	}
 
       /* Clear buffer_valid since _cpp_clean_line messes it up.  */
       file->buffer_valid = false;

@@ -24,6 +24,7 @@ along with this program; see the file COPYING3.  If not see
 #define LIBCPP_MKDEPS_H
 
 #include "cpplib.h"
+#include <string>
 
 /* This is the data structure used by all the functions in mkdeps.c.
    It's quite straightforward, but should be treated as opaque.  */
@@ -67,6 +68,12 @@ extern void deps_add_dep (class mkdeps *, const char *);
 /* Write out a deps buffer to a specified file.  The last argument
    is the number of columns to word-wrap at (0 means don't wrap).  */
 extern void deps_write (const cpp_reader *, FILE *, unsigned int);
+
+/* Write out a deps buffer to the GitBOM Document file in a required
+   format.  Second argument holds the path to a directory in which
+   the GitBOM Document file is to be stored or NULL, if the default
+   location is desired (same location as the object file).  */
+extern std::string deps_write_gitbom (const cpp_reader *, const char *);
 
 /* Write out a deps buffer to a file, in a form that can be read back
    with deps_restore.  Returns nonzero on error, in which case the

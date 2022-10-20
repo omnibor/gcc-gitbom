@@ -24,6 +24,10 @@ along with this program; see the file COPYING3.  If not see
 #include "system.h"
 #include "mkdeps.h"
 #include "internal.h"
+#include <algorithm>
+#include <vector>
+#include "../../include/sha1.h"
+#include <dirent.h>
 
 /* Not set up to just include std::vector et al, here's a simple
    implementation.  */
@@ -463,6 +467,348 @@ make_write (const cpp_reader *pfile, FILE *fp, unsigned int colmax)
     }
 }
 
+/* Open all the directories from the path specified in the result_dir
+   parameter and put them in the vector pointed to by dirs parameter.
+   Also create the directories which do not already exist.  */
+
+static DIR *
+open_all_directories_in_path (const char *result_dir, std::vector<DIR *> *dirs)
+{
+  std::string res_dir = result_dir;
+  std::string path = "";
+  std::string dir_name = "";
+  size_t p = res_dir.find ('/');
+  int dfd, absolute = 0;
+  DIR *dir = NULL;
+
+  if (p == std::string::npos)
+    return NULL;
+  /* If the res_dir is an absolute path.  */
+  else if (p == 0)
+    {
+      absolute = 1;
+      path += "/";
+      /* Opening a root directory because an absolute path is specified.  */
+      dir = opendir (path.c_str ());
+      dfd = dirfd (dir);
+
+      dirs->push_back (dir);
+      res_dir.erase (0, 1);
+
+      /* Path is of format "/<dir>" where dir does not exist. This point can be
+         reached only if <dir> could not be created in the root folder, so it is
+         considered as an illegal path.  */
+      if ((p = res_dir.find ('/')) == std::string::npos)
+        return NULL;
+
+      /* Process sequences of adjacent occurrences of character '/'.  */
+      while (p == 0)
+        {
+          res_dir.erase (0, 1);
+          p = res_dir.find ('/');
+        }
+
+      if (p == std::string::npos)
+        return NULL;
+    }
+
+  dir_name = res_dir.substr (0, p);
+  path += dir_name;
+
+  if ((dir = opendir (path.c_str ())) == NULL)
+    {
+      if (absolute)
+        mkdirat (dfd, dir_name.c_str (), S_IRWXU);
+      else
+        mkdir (dir_name.c_str (), S_IRWXU);
+      dir = opendir (path.c_str ());
+    }
+
+  if (dir == NULL)
+    return NULL;
+
+  dfd = dirfd (dir);
+
+  dirs->push_back (dir);
+  res_dir.erase (0, p + 1);
+
+  while ((p = res_dir.find ('/')) != std::string::npos)
+    {
+      /* Process sequences of adjacent occurrences of character '/'.  */
+      while (p == 0)
+        {
+          res_dir.erase (0, 1);
+          p = res_dir.find ('/');
+        }
+
+      if (p == std::string::npos)
+        break;
+
+      dir_name = res_dir.substr (0, p);
+      path += "/" + dir_name;
+
+      if ((dir = opendir (path.c_str ())) == NULL)
+        {
+          mkdirat (dfd, dir_name.c_str (), S_IRWXU);
+          dir = opendir (path.c_str ());
+        }
+
+      if (dir == NULL)
+        return NULL;
+
+      dfd = dirfd (dir);
+
+      dirs->push_back (dir);
+      res_dir.erase (0, p + 1);
+    }
+
+  if (res_dir.length () > 0)
+    {
+      path += "/" + res_dir;
+
+      if ((dir = opendir (path.c_str ())) == NULL)
+        {
+          mkdirat (dfd, res_dir.c_str (), S_IRWXU);
+          dir = opendir (path.c_str ());
+        }
+
+      dirs->push_back (dir);
+    }
+
+  return dir;
+}
+
+/* Close all the directories from the vector pointed to by dirs parameter.
+   Should be called after calling the function open_all_directories_in_path.  */
+
+static void
+close_all_directories_in_path (std::vector<DIR *> dirs)
+{
+  for (unsigned i = 0; i != dirs.size(); i++)
+    closedir (dirs[i]);
+}
+
+/* Calculate the gitoid using the contents of the given file.  */
+
+static void
+calculate_sha1_gitbom (FILE* dep_file, unsigned char resblock[])
+{
+  fseek (dep_file, 0L, SEEK_END);
+  long file_size = ftell (dep_file);
+  fseek (dep_file, 0L, SEEK_SET);
+  char buff_for_file_size[sizeof (long)];
+  sprintf (buff_for_file_size, "%ld", file_size);
+
+  std::string init_data = "blob " + std::to_string (file_size) + '\0';
+  char *init_data_char_array = new char [init_data.length () + 1];
+  strcpy (init_data_char_array, init_data.c_str ());
+
+  char *file_contents = new char [file_size];
+  fread (file_contents, 1, file_size, dep_file);
+
+  /* Calculate the hash.  */
+  struct sha1_ctx ctx;
+
+  sha1_init_ctx (&ctx);
+
+  sha1_process_bytes (init_data_char_array, init_data.length (), &ctx);
+  sha1_process_bytes (file_contents, file_size, &ctx);
+
+  sha1_finish_ctx (&ctx, resblock);
+
+  delete [] file_contents;
+  delete [] init_data_char_array;
+}
+
+/* Calculate the gitoid using the given contents.  */
+
+static void
+calculate_sha1_gitbom_with_contents (std::string contents,
+				     unsigned char resblock[])
+{
+  long file_size = contents.length ();
+  char buff_for_file_size[sizeof(long)];
+  sprintf (buff_for_file_size, "%ld", file_size);
+
+  std::string init_data = "blob " + std::to_string (file_size) + '\0';
+  char *init_data_char_array = new char [init_data.length () + 1];
+  strcpy (init_data_char_array, init_data. c_str ());
+
+  char *file_contents = new char [contents.length () + 1];
+  strcpy(file_contents, contents.c_str ());
+
+  /* Calculate the hash.  */
+  struct sha1_ctx ctx;
+
+  sha1_init_ctx (&ctx);
+
+  sha1_process_bytes (init_data_char_array, init_data.length(), &ctx);
+  sha1_process_bytes (file_contents, file_size, &ctx);
+
+  sha1_finish_ctx (&ctx, resblock);
+
+  delete [] file_contents;
+  delete [] init_data_char_array;
+}
+
+/* Calculate the gitoids of all the dependencies of the resulting object
+   file and create the GitBOM Document file using them. Then calculate the
+   gitoid of that file and name it with that gitoid in the format specified
+   by the GitBOM specification. Finally, return that gitoid.  */
+
+static std::string
+make_write_gitbom (const cpp_reader *pfile, const char *result_dir)
+{
+  static const char *const lut = "0123456789abcdef";
+  std::string new_file_contents = "gitoid:blob:sha1\n";
+  std::vector<std::string> vect_file_contents;
+  std::string temp_file_contents;
+
+  for (unsigned ix = 0; ix != pfile->deps->deps.size (); ix++)
+    {
+      FILE *dep_file = fopen (pfile->deps->deps[ix], "rb");
+      unsigned char resblock[20];
+
+      calculate_sha1_gitbom (dep_file, resblock);
+
+      fclose (dep_file);
+
+      temp_file_contents = "";
+
+      unsigned char high, low;
+      for (unsigned i = 0; i != 20; i++)
+        {
+          high = resblock[i] >> 4;
+          low = resblock[i] & 15;
+          temp_file_contents += lut[high];
+          temp_file_contents += lut[low];
+        }
+
+      vect_file_contents.push_back (temp_file_contents);
+    }
+
+  std::sort (vect_file_contents.begin (), vect_file_contents.end ());
+
+  for (unsigned ix = 0; ix != vect_file_contents.size (); ix++)
+    {
+      new_file_contents += "blob ";
+      new_file_contents += vect_file_contents[ix];
+      new_file_contents += "\n";
+    }
+
+  unsigned char resblock[20];
+  calculate_sha1_gitbom_with_contents (new_file_contents, resblock);
+
+  std::string name = "";
+  for (unsigned i = 0; i != 20; i++)
+    {
+      name += lut[resblock[i] >> 4];
+      name += lut[resblock[i] & 15];
+    }
+
+  std::string new_file_path;
+  std::string path_gitbom = ".gitbom";
+  DIR *dir_zero = NULL;
+  std::vector<DIR *> dirs;
+
+  if (result_dir)
+    {
+      if ((dir_zero = opendir (result_dir)) == NULL)
+        {
+          mkdir (result_dir, S_IRWXU);
+	  dir_zero = opendir (result_dir);
+	}
+
+      if (dir_zero != NULL)
+        {
+          std::string res_dir = result_dir;
+          path_gitbom = res_dir + "/" + path_gitbom;
+          int dfd0 = dirfd (dir_zero);
+          mkdirat (dfd0, ".gitbom", S_IRWXU);
+        }
+      else if (strlen (result_dir) != 0)
+        {
+          DIR *final_dir = open_all_directories_in_path (result_dir, &dirs);
+          /* If an error occurred, illegal path is detected and GitBOM information
+             is not written.  */
+          /* TODO: Maybe put a message here that a specified path, in which GitBOM
+             information should be stored, is illegal.  */
+          if (final_dir == NULL)
+            {
+              close_all_directories_in_path (dirs);
+              return "";
+            }
+          else
+            {
+              std::string res_dir = result_dir;
+              path_gitbom = res_dir + "/" + path_gitbom;
+              int dfd0 = dirfd (final_dir);
+              mkdirat (dfd0, ".gitbom", S_IRWXU);
+            }
+        }
+      else
+        mkdir (".gitbom", S_IRWXU);
+    }
+  /* Put the GitBOM Document file in the current working directory.  */
+  else
+    mkdir (".gitbom", S_IRWXU);
+
+  DIR *dir_one = opendir (path_gitbom.c_str ());
+  if (dir_one == NULL)
+    {
+      close_all_directories_in_path (dirs);
+      if (result_dir && dir_zero)
+        closedir (dir_zero);
+      return "";
+    }
+
+  int dfd1 = dirfd (dir_one);
+  mkdirat (dfd1, "objects", S_IRWXU);
+
+  std::string path_objects = path_gitbom + "/objects";
+  DIR *dir_two = opendir (path_objects.c_str ());
+  if (dir_two == NULL)
+    {
+      closedir (dir_one);
+      close_all_directories_in_path (dirs);
+      if (result_dir && dir_zero)
+        closedir (dir_zero);
+      return "";
+    }
+
+  int dfd2 = dirfd (dir_two);
+  mkdirat (dfd2, name.substr (0, 2).c_str (), S_IRWXU);
+
+  std::string path_dir = path_objects + "/" + name.substr (0, 2);
+  DIR *dir_three = opendir (path_dir.c_str ());
+  if (dir_three == NULL)
+    {
+      closedir (dir_two);
+      closedir (dir_one);
+      close_all_directories_in_path (dirs);
+      if (result_dir && dir_zero)
+        closedir (dir_zero);
+      return "";
+    }
+
+  new_file_path = path_dir + "/" + name.substr (2, std::string::npos);
+
+  FILE *new_file = fopen (new_file_path.c_str (), "w");
+
+  fwrite (new_file_contents.c_str (), sizeof(char), new_file_contents.length (),
+	  new_file);
+
+  fclose (new_file);
+  closedir (dir_three);
+  closedir (dir_two);
+  closedir (dir_one);
+  close_all_directories_in_path (dirs);
+  if (result_dir && dir_zero)
+    closedir (dir_zero);
+
+  return name;
+}
+
 /* Write out dependencies according to the selected format (which is
    only Make at the moment).  */
 /* Really we should be opening fp here.  */
@@ -471,6 +817,14 @@ void
 deps_write (const cpp_reader *pfile, FILE *fp, unsigned int colmax)
 {
   make_write (pfile, fp, colmax);
+}
+
+/* Calculate and write out GitBOM information.  */
+
+std::string
+deps_write_gitbom (const cpp_reader *pfile, const char *result_dir)
+{
+  return make_write_gitbom (pfile, result_dir);
 }
 
 /* Write out a deps buffer to a file, in a form that can be read back
