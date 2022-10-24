@@ -79,4 +79,7 @@ extern int deps_save (class mkdeps *, FILE *);
    in which case that filename is skipped.  */
 extern int deps_restore (class mkdeps *, FILE *, const char *);
 
+/* Write out gitbom deps to a specified file */
+extern void deps_write_gitbom_file (const cpp_reader *pfile, char *outfile);
+
 #endif /* ! LIBCPP_MKDEPS_H */

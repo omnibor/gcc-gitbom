@@ -328,6 +328,8 @@ cpp_destroy (cpp_reader *pfile)
 
   if (pfile->deps)
     deps_free (pfile->deps);
+  if (pfile->gitbom_deps)
+    deps_free (pfile->gitbom_deps);
   obstack_free (&pfile->buffer_ob, 0);
 
   _cpp_destroy_hashtable (pfile);
@@ -679,6 +681,12 @@ cpp_post_options (cpp_reader *pfile)
 const char *
 cpp_read_main_file (cpp_reader *pfile, const char *fname, bool injecting)
 {
+  /* Initialize gitbom_deps if the env-var is set */
+  const char *gitbom_mode_str = getenv("GITBOM_BUILD_MODE");
+  if (gitbom_mode_str && (strstr(gitbom_mode_str, "sha1") || strstr(gitbom_mode_str, "sha256"))) {
+    pfile->gitbom_deps = deps_init();
+  }
+
   if (mkdeps *deps = cpp_get_deps (pfile))
     /* Set the default target (if there is none already).  */
     deps_add_default_target (deps, fname);

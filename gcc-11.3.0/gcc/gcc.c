@@ -347,6 +347,498 @@ static struct obstack collect_obstack;
 struct path_prefix;
 struct prefix_list;
 
+// gitbom variables
+/* the output file of collect2, which links .o to exectable. */
+static const char *gitbom_collect2_outfname = NULL;
+/* the number of input files of collect2 */
+static int gitbom_ld_infiles_num = 0;
+/* the array of input files of collect2 */
+static const char **gitbom_ld_infiles = NULL;
+
+/* 0 means no hash, 1 means SHA1 only, 2 means SHA256 only, and 3 means SHA1+SHA256 */
+static int gitbom_hash_mode = 0;
+/* process ID, used to construct unique file name, etc. */
+static pid_t gitbom_pid = 0;
+
+/* a buffer to construct shell command, file name, etc. */
+static char *gitbom_buf = NULL;
+// May need to use more efficient buffer to avoid buffer overflow or reduce memory usage
+
+/* to record the build_cmd for record_hash feature */
+static int gitbom_argc = 0;
+static char ** gitbom_argv = NULL;
+/* the default directory to save gitbom ADG and symlink files */
+static const char *gitbom_adgdir = ".gitbom";
+/* the default directory to save gitbom log files */
+static const char *gitbom_logdir = ".gitbom/metadata/gcc";
+
+/* do we create gitBOM ADG docs? we always create symlink from artifact-id to bom-id if creating gitBOM docs */
+static int gitbom_create_adg_flag = 0;
+/* do we embed bom_id to output ELF files? */
+static int gitbom_embed_bomid_flag = 0;
+/* do we want to record hashes of output and input files? */
+static int gitbom_record_hash_flag = 0;
+
+/* we can easily turn on some printf for debugging */
+#if 1
+#define gitbom_printf(...) do { } while (0)
+#else
+#define gitbom_printf printf
+#endif
+
+#define GITBOM_SHA1 1
+#define GITBOM_SHA256 2
+
+/* 5 bytes "blob " + 64 bytes sha256 + 5 bytes " bom " + 64 bytes sha256 + 1 byte newline */
+#define GITBOM_MAX_DEPLINE_SIZE (5 + 64 + 5 + 64 + 1)
+
+/* 8192 bytes for shell command, should be big enough */
+#define GITBOM_BUF_SIZE 8192
+
+static off_t
+get_file_size(const char *filename)
+{
+  struct stat st;
+  st.st_size = 0;
+  stat(filename, &st);
+  return st.st_size;
+}
+
+/* Get the SHA1/SHA256 hash of a file */
+/* hash_alg value of 2 means SHA256, all other values mean SHA1 */
+static char *
+gitbom_get_file_hash(const char *afile, int hash_alg)
+{
+  char tmpfile[64];
+  sprintf(tmpfile, "/tmp/gitbom_gcc_pid%d_hash", gitbom_pid);
+  sprintf(gitbom_buf, "printf \"blob %ld\\0\" | cat - %s 2>/dev/null | %s | head --bytes=-4 > %s",
+	  get_file_size(afile), afile, hash_alg == GITBOM_SHA256 ? "sha256sum" : "sha1sum", tmpfile);
+  if ( -1 == system(gitbom_buf) ) {
+    fatal_error(input_location, "Failed to run the get file hash command");
+  }
+
+  off_t size = get_file_size (tmpfile);
+  char *buffer = (char *) xmalloc (size + 1);
+  FILE *f = fopen (tmpfile, "r");
+  if (f == NULL)
+    fatal_error (input_location, "cannot open %s", tmpfile);
+  if (fread (buffer, 1, size, f) == 0 || ferror (f))
+    fatal_error (input_location, "%s: fread failed", tmpfile);
+  fclose (f);
+  buffer [size] = '\0';
+  remove(tmpfile);
+  return buffer;
+}
+
+/* Get the SHA1/SHA256 hash of a list of files */
+static char **
+gitbom_get_file_hashes(const char **infiles, int infile_num, int hash_alg)
+{
+  char **infile_hashes = (char **) xmalloc( infile_num * sizeof(char *) );
+  for(int i=0; i<infile_num; i++) {
+    infile_hashes[i] = gitbom_get_file_hash(infiles[i], hash_alg);
+  }
+  return infile_hashes;
+}
+
+static void
+gitbom_free_file_hashes(char **infile_hashes, int infile_num)
+{
+  if (infile_hashes) {
+    for (int i=0; i<infile_num; i++) {
+      if (infile_hashes[i]) free(infile_hashes[i]);
+    }
+    free(infile_hashes);
+  }
+}
+
+static const char *
+gitbom_get_basename(const char *path)
+{
+  const char *p = strrchr(path, '/');
+  return p ? (p+1) : path;
+}
+
+/* Get the symlink file path in the symlink farm */
+static char *
+gitbom_get_symlink(char *ahash)
+{
+  sprintf(gitbom_buf, "%s/symlinks/%s", gitbom_adgdir, ahash);
+  return xstrdup(gitbom_buf);
+}
+
+static bool
+symlink_exists(const char* path)
+{
+  struct stat buf;
+  return ( lstat(path, &buf) == 0 );
+}
+
+static int strcmp_comparator(const void *p, const void *q)
+{
+  return strcmp(* (char * const *) p, * (char * const *) q);
+}
+
+/* Create a temporary ADG doc for a list of infile hashes, for a specific hashing algorithm */
+static char *
+gitbom_create_temp_adg_doc(char **infile_hashes, int infile_num, int hash_alg)
+{
+  int i;
+  // an array of pointers for qsort
+  char ** deplines = (char **)xmalloc( (infile_num + 1) * sizeof(char *) );
+  char *deplines_buf = (char *)xmalloc( infile_num * (GITBOM_MAX_DEPLINE_SIZE) + 1 );
+  deplines[0] = deplines_buf;
+  for (i=0; i<infile_num; i++) {
+    char *inhash = infile_hashes[i];
+    char *in_symlink = gitbom_get_symlink(inhash);
+    gitbom_buf[0] = '\0';
+    const char *bomptr = NULL;
+    if (symlink_exists(in_symlink)) {
+      ssize_t len = readlink(in_symlink, gitbom_buf, GITBOM_BUF_SIZE - 1);
+      if (len < 0) {
+	fatal_error (input_location, "Failed to read gitbom symlink");
+      }
+      gitbom_buf[len] = '\0';
+      // the symlink is usually relative format of ../objects/xx/38xxxx
+      for (int j=len-1; j>2; j--) {
+	if (gitbom_buf[j] == '/') {
+	  bomptr = &gitbom_buf[j-2];
+	  break;
+	}
+      }
+    }
+    free(in_symlink);
+    // now create the i-th line of dependency
+    if (bomptr) {
+      deplines[i+1] = deplines[i] + sprintf(deplines[i], "blob %s bom %c%c%s\n", inhash, bomptr[0], bomptr[1], &bomptr[3]);
+      deplines[i+1][-1] = 0;
+    } else {
+      deplines[i+1] = deplines[i] + sprintf(deplines[i], "blob %s\n", inhash);
+      deplines[i+1][-1] = 0;
+    }
+  }
+  // it is required to sort the array
+  if (infile_num > 1) {
+    qsort(deplines, infile_num, sizeof(char *), strcmp_comparator);
+  }
+  // first write to a temporary file to get the hash, then figure out the file name to save
+  sprintf(gitbom_buf, "/tmp/gitbom_gcc_pid%d_sha%d_adg", gitbom_pid, hash_alg);
+  char *tmpfile = xstrdup(gitbom_buf);
+  FILE *f = fopen (tmpfile, "w");
+  if (f == NULL)
+    fatal_error (input_location, "cannot open %s", tmpfile);
+  fprintf(f, "gitoid:blob:sha%s\n", hash_alg == 2 ? "256" : "1");
+  for (i=0; i<infile_num; i++) {
+    fprintf(f, "%s\n", deplines[i]);
+  }
+  fclose(f);
+  free(deplines);
+  free(deplines_buf);
+  gitbom_printf("gitbom write adg doc to tmpfile: %s\n", tmpfile);
+  return tmpfile;
+}
+
+/* Create a symlink for a output file hash, pointing to the ADG doc */
+static void
+gitbom_create_symlink(char *outhash, char *adg_doc)
+{
+  char *out_symlink = gitbom_get_symlink(outhash);
+  sprintf(gitbom_buf, "mkdir -p %s/symlinks ; ln -sfr %s %s", gitbom_adgdir, adg_doc, out_symlink);
+  gitbom_printf("gitbom create symlink cmd is: %s\n", gitbom_buf);
+  if ( -1 == system(gitbom_buf) ) {
+    gitbom_printf("Failed to create gitbom symlink %s", out_symlink);
+  }
+  free(out_symlink);
+}
+
+/* rename the temporary ADG doc to the final .gitbom/objects/xx/38xxxx file name */
+static char *
+gitbom_rename_adg_doc(char *temp_adg_doc, char *adg_hash)
+{
+  sprintf(gitbom_buf, "%s/objects/%c%c", gitbom_adgdir, adg_hash[0], adg_hash[1]);
+  char *adg_doc_dir = xstrdup(gitbom_buf);
+  sprintf(gitbom_buf, "%s/objects/%c%c/%s", gitbom_adgdir, adg_hash[0], adg_hash[1], adg_hash+2);
+  gitbom_printf("the new adg doc to mv: %s\n", gitbom_buf);
+  char *adg_doc = xstrdup(gitbom_buf);
+  sprintf(gitbom_buf, "mkdir -p %s ; mv %s %s", adg_doc_dir, temp_adg_doc, adg_doc);
+  gitbom_printf("the ADG doc mv cmd: %s\n", gitbom_buf);
+  if ( -1 == system(gitbom_buf) ) {
+    gitbom_printf("Failed to move gitbom ADG doc %s", adg_doc);
+  }
+  free(adg_doc_dir);
+  return adg_doc;
+}
+
+/* record hash for the output file and a list of input files */
+static void
+gitbom_record_hash(const char *outhash, const char *outfile_path, const char **infiles, int infile_num, char **infile_hashes, int hash_alg)
+{
+  if (!gitbom_record_hash_flag) {
+    return;
+  }
+  int i;
+  // Record the hashes of output/input files to logfile
+  char *logfile = gitbom_buf;
+  sprintf(logfile, "%s/%s.%s.pid%d.gitbom_raw_logfile", gitbom_logdir, hash_alg==2 ? "sha256" : "sha1", outhash, gitbom_pid);
+  FILE *f = fopen (logfile, "w");
+  if (f == NULL)
+    fatal_error (input_location, "cannot open gitbom logfile %s", logfile);
+  fprintf(f, "\noutfile: %s path: %s\n", outhash, outfile_path);
+  for (i=0; i<infile_num; i++) {
+    fprintf(f, "infile: %s path: %s\n", infile_hashes[i], infiles[i]);
+  }
+  fprintf(f, "build_cmd:");
+  for(i=0; i<gitbom_argc; i++) {
+    fprintf(f, " %s", gitbom_argv[i]);
+  }
+  fprintf(f, "\n==== End of raw info for PID %d process\n\n", gitbom_pid);
+  fclose(f);
+}
+
+/* Check if a file is ELF file */
+static int gitbom_is_elf_file(const char *afile)
+{
+  FILE *fp = fopen(afile, "rb");
+  if (!fp) {
+    gitbom_printf("Error open file %s", afile);
+    return 0;
+  }
+  char buf[4];
+  if (fread (buf, 1, 4, fp) != 4) {
+    gitbom_printf("error reading %s", afile);
+    return 0;
+  }
+  fclose(fp);
+  return (buf[0] == 0x7f && buf[1] == 'E' && buf[2] == 'L' && buf[3] == 'F');
+}
+
+/* the ELF note format for .note.gitbom section */
+typedef struct gitbom_note {
+  uint32_t namesz;
+  uint32_t descsz;
+  uint32_t type;
+  char name[8];
+  char desc[32];  // union of 20 bytes sha1 or 32 bytes sha256
+} gitbom_note;
+
+#define GITBOM_NOTE_SHA256_SIZE sizeof(gitbom_note)
+#define GITBOM_NOTE_SHA1_SIZE (sizeof(gitbom_note) - 12)
+
+/* Get the value of a hexadecimal digit */
+static int get_hex_value(char c)
+{
+  if (c >= '0' && c <= '9')
+    return (c - '0');
+  else if (c >= 'A' && c <= 'F')
+    return (10 + (c - 'A'));
+  else if (c >= 'a' && c <= 'f')
+    return (10 + (c - 'a'));
+  else
+    return -1;
+}
+
+/* embed sha1-only, sha256-only, or sha1+sha256 bom-id into .note.gitbom ELF section */
+static void
+gitbom_embed_bomid(const char *outfile, const char *bomid_sha1, const char *bomid_sha256)
+{
+  int i;
+  if (!bomid_sha1 && !bomid_sha256) {
+    return;
+  }
+  if (!gitbom_is_elf_file(outfile)) {
+    gitbom_printf("not able to embed bomid, because it is not ELF file: %s\n", outfile);
+    return;
+  }
+  sprintf(gitbom_buf, "/tmp/gitbom_gcc_pid%d_bomid", gitbom_pid);
+  char *tmpfile = xstrdup(gitbom_buf);
+  gitbom_note note;
+  memset(&note, 0, sizeof(note));
+  note.namesz = 7;
+  strcpy(note.name, "GITBOM");
+  FILE *f = fopen(tmpfile, "wb");
+  if (bomid_sha1) {
+    note.type = 1;
+    note.descsz = 20;
+    for (i=0; i<20; i++) {
+      note.desc[i] = get_hex_value(bomid_sha1[2*i]) * 16 + get_hex_value(bomid_sha1[2*i+1]);
+    }
+    fwrite(&note, GITBOM_NOTE_SHA1_SIZE, 1, f);
+  }
+  if (bomid_sha256) {
+    note.type = 2;
+    note.descsz = 32;
+    for (i=0; i<32; i++) {
+      note.desc[i] = get_hex_value(bomid_sha256[2*i]) * 16 + get_hex_value(bomid_sha256[2*i+1]);
+    }
+    fwrite(&note, GITBOM_NOTE_SHA256_SIZE, 1, f);
+  }
+  fclose(f);
+  const char *insert_note_format = "if objdump -s -j .note.gitbom %s >/dev/null 2>/dev/null ; then\n"
+	  "GITBOM_BUILD_MODE= objcopy --update-section .note.gitbom=%s --set-section-flags .note.gitbom=alloc,readonly --set-section-alignment .note.gitbom=4 %s >/dev/null 2>/dev/null\nelse\n"
+	  "GITBOM_BUILD_MODE= objcopy --add-section .note.gitbom=%s --set-section-flags .note.gitbom=alloc,readonly --set-section-alignment .note.gitbom=4 %s >/dev/null 2>/dev/null\nfi\n";
+  sprintf(gitbom_buf, insert_note_format, outfile, tmpfile, outfile, tmpfile, outfile);
+  gitbom_printf("the gitbom embed bomid cmd: %s\n", gitbom_buf);
+  if ( -1 == system(gitbom_buf) ) {
+    gitbom_printf("Failed to run the gitbom embed bomid command: %s", gitbom_buf);
+  }
+  remove(tmpfile);
+  free(tmpfile);
+}
+
+/* Extra work for gitbom build mode */
+/* Embed bom-id first, and then create ADG doc and symlink, and record hash at last */
+static void
+gitbomExtraWork(const char *outfile, const char **infiles, int infile_num, int mode)
+{
+  char *adg_doc = NULL;
+  char *sha1_adg_doc = NULL;
+  char *sha1_adg_hash = NULL;
+  char *sha256_adg_doc = NULL;
+  char *sha256_adg_hash = NULL;
+  char **sha1_infile_hashes = NULL;
+  char **sha256_infile_hashes = NULL;
+  char *outhash = NULL;
+  if (!outfile) {
+    return;
+  }
+  if (!gitbom_create_adg_flag && !gitbom_record_hash_flag) {
+    return;
+  }
+  // bom_id embedding must occur before creating gitBOM doc and symlink, also before recording hashes of output file
+  if (gitbom_embed_bomid_flag) {
+    if (mode & GITBOM_SHA1) {
+      sha1_infile_hashes = gitbom_get_file_hashes(infiles, infile_num, GITBOM_SHA1);
+      sha1_adg_doc = gitbom_create_temp_adg_doc(sha1_infile_hashes, infile_num, GITBOM_SHA1);
+      sha1_adg_hash = gitbom_get_file_hash(sha1_adg_doc, GITBOM_SHA1);
+    }
+    if (mode & GITBOM_SHA256) {
+      sha256_infile_hashes = gitbom_get_file_hashes(infiles, infile_num, GITBOM_SHA256);
+      sha256_adg_doc = gitbom_create_temp_adg_doc(sha256_infile_hashes, infile_num, GITBOM_SHA256);
+      sha256_adg_hash = gitbom_get_file_hash(sha256_adg_doc, GITBOM_SHA256);
+    }
+    gitbom_embed_bomid(outfile, sha1_adg_hash, sha256_adg_hash);
+  }
+  // now create ADG doc and symlink, and record hashes
+  char *outfile_path = realpath(outfile, NULL);
+  if (mode & GITBOM_SHA1) {
+    outhash = gitbom_get_file_hash(outfile, GITBOM_SHA1);
+    if (!sha1_infile_hashes) {
+      sha1_infile_hashes = gitbom_get_file_hashes(infiles, infile_num, GITBOM_SHA1);
+      if (gitbom_create_adg_flag) {
+	sha1_adg_doc = gitbom_create_temp_adg_doc(sha1_infile_hashes, infile_num, GITBOM_SHA1);
+	sha1_adg_hash = gitbom_get_file_hash(sha1_adg_doc, GITBOM_SHA1);
+      }
+    }
+    if (gitbom_create_adg_flag) {
+      // sha1_adg_doc and sha1_adg_hash must have been assigned earlier
+      adg_doc = gitbom_rename_adg_doc(sha1_adg_doc, sha1_adg_hash);
+      gitbom_create_symlink(outhash, adg_doc);
+      free(adg_doc);
+    }
+    gitbom_record_hash(outhash, outfile_path, infiles, infile_num, sha1_infile_hashes, GITBOM_SHA1);
+    free(outhash);
+  }
+  if (mode & GITBOM_SHA256) {
+    outhash = gitbom_get_file_hash(outfile, GITBOM_SHA256);
+    if (!sha256_infile_hashes) {
+      sha256_infile_hashes = gitbom_get_file_hashes(infiles, infile_num, GITBOM_SHA256);
+      if (gitbom_create_adg_flag) {
+	sha256_adg_doc = gitbom_create_temp_adg_doc(sha256_infile_hashes, infile_num, GITBOM_SHA256);
+	sha256_adg_hash = gitbom_get_file_hash(sha256_adg_doc, GITBOM_SHA256);
+      }
+    }
+    if (gitbom_create_adg_flag) {
+      // sha256_adg_doc and sha256_adg_hash must have been assigned earlier
+      adg_doc = gitbom_rename_adg_doc(sha256_adg_doc, sha256_adg_hash);
+      gitbom_create_symlink(outhash, adg_doc);
+      free(adg_doc);
+    }
+    gitbom_record_hash(outhash, outfile_path, infiles, infile_num, sha256_infile_hashes, GITBOM_SHA256);
+    free(outhash);
+  }
+  free(outfile_path);
+  if (sha1_adg_doc) free(sha1_adg_doc);
+  if (sha1_adg_hash) free(sha1_adg_hash);
+  if (sha256_adg_doc) free(sha256_adg_doc);
+  if (sha256_adg_hash) free(sha256_adg_hash);
+  if (sha1_infile_hashes) gitbom_free_file_hashes(sha1_infile_hashes, infile_num);
+  if (sha256_infile_hashes) gitbom_free_file_hashes(sha256_infile_hashes, infile_num);
+}
+
+/* CC compiler Extra work for gitbom build mode */
+/* outfile is the output file, either hello.E/hello.s/hello.o file */
+/* infile is the input file, usually should be hello.c file. sometimes it can be hello.s file for "gcc -c hello.s" */
+void gitbomCCExtraWork(const char *outfile, const char *infile)
+{
+  const char **infiles = NULL;
+  int infile_num = 0;
+  char *contents = NULL;
+  if (!outfile || strcmp(outfile, "/dev/null") == 0) {
+    return;
+  }
+  // first find out the list of dependency files
+  sprintf(gitbom_buf, "%s.pid%d.gitbom_deps", infile, getpid());
+  char *deps_file = xstrdup(gitbom_buf);
+  if (access(deps_file, R_OK) < 0) {
+    gitbom_printf("deps_file %s does not exist! use single infile: %s\n", deps_file, infile);
+    infile_num = 1;
+    infiles = (const char **)xmalloc( sizeof(char *) );
+    infiles[0] = infile;
+  } else {
+    int i;
+    off_t n = get_file_size(deps_file);
+    contents = (char *)xmalloc(n + 1);
+    FILE * f = fopen (deps_file, "rb");
+    if (fread(contents, 1, n, f) != (size_t)n) {
+      fatal_error(input_location, "Failed to read deps file %s", deps_file);
+    }
+    contents[n] = 0;
+    fclose(f);
+    // we need to delete the deps_file, saved by the CC1 process.
+    remove(deps_file);
+    for (i=0; i<n; i++) {
+      if (contents[i] == '\n') {
+        infile_num += 1;
+      }
+    }
+    infiles = (const char **)xmalloc( (infile_num + 1) * sizeof(char *) );
+    infiles[0] = contents;
+    int j = 1;
+    // separate files per line, and initialize the infiles pointer array
+    for (i=0; i<n; i++) {
+      if (contents[i] == '\n') {
+        contents[i] = '\0';
+        infiles[j++] = &contents[i+1];
+      }
+    }
+  }
+  free(deps_file);
+  // do the gitBOM extra work
+  gitbomExtraWork(outfile, infiles, infile_num, gitbom_hash_mode);
+  free(infiles);
+  if (contents) free(contents);
+}
+
+// process collect2 argv and save outfname and list of .o/.a dependency files
+static void gitbomProcessCollect2Argv(const char **myargv)
+{
+  int argc;
+  gitbom_collect2_outfname = "a.out";
+  for (argc = 0; myargv[argc]; argc++) ;
+  gitbom_ld_infiles = (const char **)xmalloc( argc * sizeof(char *) );
+  gitbom_ld_infiles_num = 0;
+  for(int j=1; myargv[j]; j++) {
+    int mylen = strlen(myargv[j]);
+    if (strcmp(myargv[j], "-o") == 0) {
+      j++;
+      gitbom_collect2_outfname = myargv[j];
+    } else if (myargv[j][0] != '-' && (myargv[j][mylen-1] == 'o' || myargv[j][mylen-1] == 'a') && myargv[j][mylen-2] == '.') {
+      gitbom_ld_infiles[gitbom_ld_infiles_num] = myargv[j];
+      gitbom_ld_infiles_num++;
+    }
+  }
+}
+
 static void init_spec (void);
 static void store_arg (const char *, int, int);
 static void insert_wrapper (const char *);
@@ -3401,6 +3893,12 @@ execute (void)
       const char *errmsg;
       int err;
       const char *string = commands[i].argv[0];
+
+      // we just need to process the collect2 command parameters, and record the .o/.a files for linking dependency
+      //printf("check if it is collect2 command: %s\n", string);
+      if (gitbom_hash_mode && strcmp(gitbom_get_basename(string), "collect2") == 0) {
+          gitbomProcessCollect2Argv(commands[i].argv);
+      }
 
       errmsg = pex_run (pex,
 			((i + 1 == n_commands ? PEX_LAST : 0)
@@ -8021,6 +8519,43 @@ driver::main (int argc, char **argv)
 {
   bool early_exit;
 
+  /* Check the environment variable and set the gitbom_hash_mode and flags */
+  const char *gitbom_mode_str = env.get("GITBOM_BUILD_MODE");
+  if (gitbom_mode_str) {
+    if (strstr(gitbom_mode_str, "sha1")) {
+      gitbom_hash_mode |= GITBOM_SHA1;
+    }
+    if (strstr(gitbom_mode_str, "sha256")) {
+      gitbom_hash_mode |= GITBOM_SHA256;
+    }
+    if (gitbom_hash_mode) {
+      gitbom_argc = argc;
+      gitbom_argv = argv;
+      gitbom_pid = getpid();
+      gitbom_buf = (char *)xmalloc(GITBOM_BUF_SIZE);
+      if (strstr(gitbom_mode_str, "create_adg")) {
+        gitbom_create_adg_flag = 1;
+      }
+      if (strstr(gitbom_mode_str, "embed_bomid")) {
+        gitbom_create_adg_flag = 1;
+        gitbom_embed_bomid_flag = 1;
+      }
+      const char *env_logdir = env.get("GITBOM_ADG_DIR");
+      if (env_logdir) {
+        gitbom_adgdir = env_logdir;
+        sprintf(gitbom_buf, "%s/metadata/gcc", env_logdir);
+        gitbom_logdir = xstrdup(gitbom_buf);
+      }
+      if (strstr(gitbom_mode_str, "record_hash")) {
+        gitbom_record_hash_flag = 1;
+        sprintf(gitbom_buf, "mkdir -p %s", gitbom_logdir);
+        if ( -1 == system(gitbom_buf) ) {
+	  fatal_error (input_location, "Failed to create the gitbom log directory");
+	}
+      }
+    }
+  }
+
   set_progname (argv[0]);
   expand_at_files (&argc, &argv);
   decode_argv (argc, const_cast <const char **> (argv));
@@ -8048,6 +8583,13 @@ driver::main (int argc, char **argv)
 
   do_spec_on_infiles ();
   maybe_run_linker (argv[0]);
+
+  // GITBOM_BUILD_MODE extra work for the linker
+  if (gitbom_hash_mode && (gitbom_create_adg_flag || gitbom_record_hash_flag)) {
+    gitbomExtraWork(gitbom_collect2_outfname, gitbom_ld_infiles, gitbom_ld_infiles_num, gitbom_hash_mode);
+    if (gitbom_ld_infiles) free(gitbom_ld_infiles);
+  }
+
   final_actions ();
   return get_exit_code ();
 }
@@ -8818,6 +9360,17 @@ driver::do_spec_on_infiles () const
 		}
 
 	      value = do_spec (input_file_compiler->spec);
+
+	      // GITBOM_BUILD_MODE extra work for CC compiler
+	      if (gitbom_hash_mode && (gitbom_create_adg_flag || gitbom_record_hash_flag)) {
+		// There are two possible output files for CC1
+		if (strcmp(outfiles[i], gcc_input_filename)) {
+		  gitbomCCExtraWork(outfiles[i], gcc_input_filename);
+		} else if (output_file) {
+		  gitbomCCExtraWork(output_file, gcc_input_filename);
+		}
+	      }
+
 	      infiles[i].compiled = true;
 	      if (value < 0)
 		this_file_error = 1;
