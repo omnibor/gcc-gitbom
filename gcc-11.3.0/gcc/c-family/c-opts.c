@@ -1284,6 +1284,17 @@ c_common_finish (void)
      with cpp_destroy ().  */
   cpp_finish (parse_in, deps_stream);
 
+  const char *gitbom_mode = getenv("GITBOM_BUILD_MODE");
+  // may not need to call getenv, simply checking parse_in->gitbom_deps is not NULL.
+  // but anyway, parse_in->gitbom_deps is checked in the deps_write_gitbom_file() function.
+  if (gitbom_mode && strcmp(this_input_filename, "/dev/null") && strcmp(out_fname, "/dev/null")) {
+    char gitbom_file[PATH_MAX];
+    // need to include ppid, to avoid conflicts when the same .c file is compiled to multiple .o files
+    sprintf(gitbom_file, "%s.pid%d.gitbom_deps", this_input_filename, getppid());  // assume the input_file dir is writable
+    //printf("after cpp_finish, writing to %s, the gitbom_deps of out_fname: %s input_file: %s\n", gitbom_file, out_fname, this_input_filename);
+    deps_write_gitbom_file(parse_in, gitbom_file);
+  }
+
   if (deps_stream && deps_stream != out_stream && deps_stream != stdout
       && (ferror (deps_stream) || fclose (deps_stream)))
     fatal_error (input_location, "closing dependency file %s: %m", deps_file);

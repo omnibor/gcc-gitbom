@@ -534,6 +534,9 @@ struct cpp_reader
   /* Opaque handle to the dependencies of mkdeps.c.  */
   class mkdeps *deps;
 
+  /* Opaque handle to the gitbom dependencies of mkdeps.c.  */
+  class mkdeps *gitbom_deps;
+
   /* Obstack holding all macro hash nodes.  This never shrinks.
      See identifiers.c */
   struct obstack hash_ob;

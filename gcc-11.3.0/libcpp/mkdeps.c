@@ -473,6 +473,28 @@ deps_write (const cpp_reader *pfile, FILE *fp, unsigned int colmax)
   make_write (pfile, fp, colmax);
 }
 
+/* Write out the gitbom_deps buffer to a file, to read later by CC1 compiler */
+
+void
+deps_write_gitbom_file (const cpp_reader *pfile, char *outfile)
+{
+  const mkdeps *d = pfile->gitbom_deps;
+  if (!d) {
+    return;
+  }
+  FILE *fp = fopen(outfile, "w");
+  if (!fp) {
+    return;
+  }
+  for (unsigned int i = 0; i < d->deps.size (); i++) {
+    char *dep = realpath(d->deps[i], NULL);
+    fputs(dep, fp);
+    fputs("\n", fp);
+    free(dep);
+  }
+  fclose(fp);
+}
+
 /* Write out a deps buffer to a file, in a form that can be read back
    with deps_restore.  Returns nonzero on error, in which case the
    error number will be in errno.  */

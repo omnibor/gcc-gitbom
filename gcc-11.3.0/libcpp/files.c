@@ -956,6 +956,11 @@ _cpp_stack_file (cpp_reader *pfile, _cpp_file *file, include_type type,
 	       && CPP_OPTION (pfile, deps.ignore_main_file)))
 	deps_add_dep (pfile->deps, file->path);
 
+      /* Add the file to the gitbom dependencies */
+      if (pfile->gitbom_deps && !file->stack_count && file->path[0]) {
+	deps_add_dep (pfile->gitbom_deps, file->path);
+      }
+
       /* Clear buffer_valid since _cpp_clean_line messes it up.  */
       file->buffer_valid = false;
       file->stack_count++;
