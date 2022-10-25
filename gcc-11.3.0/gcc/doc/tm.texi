@@ -8120,6 +8120,24 @@ ELF implementation of the @code{TARGET_ASM_RECORD_GCC_SWITCHES} target
 hook.
 @end deftypevr
 
+@deftypefn {Target Hook} void TARGET_ASM_RECORD_GITBOM (void)
+Provides the target with the ability to record the gitoid of an
+artifact.
+
+By default this hook is set to NULL, but an example implementation is
+provided for ELF based targets.  Called @var{elf_record_gitbom},
+it records the gitoid as ASCII text inside a new, string mergeable
+section in the assembler output file.  The name of the new section is
+provided by the @code{TARGET_ASM_RECORD_GITBOM_SECTION} target
+hook.
+@end deftypefn
+
+@deftypevr {Target Hook} {const char *} TARGET_ASM_RECORD_GITBOM_SECTION
+This is the name of the section that will be created by the example
+ELF implementation of the @code{TARGET_ASM_RECORD_GITBOM} target
+hook.
+@end deftypevr
+
 @need 2000
 @node Data Output
 @subsection Output of Data

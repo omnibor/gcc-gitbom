@@ -462,6 +462,11 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #undef  TARGET_ASM_RECORD_GCC_SWITCHES
 #define TARGET_ASM_RECORD_GCC_SWITCHES elf_record_gcc_switches
 
+/* Allow the use of the -frecord-gitbom switch via the
+   elf_record_gitbom function defined in varasm.c.  */
+#undef  TARGET_ASM_RECORD_GITBOM
+#define TARGET_ASM_RECORD_GITBOM elf_record_gitbom
+
 /* A C statement (sans semicolon) to output to the stdio stream STREAM
    any text necessary for declaring the name of an external symbol
    named NAME which is referenced in this compilation but not defined.

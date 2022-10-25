@@ -176,6 +176,14 @@ init_library (void)
     }
 }
 
+bool gitbom_enabled = false;
+
+void
+set_gitbom_enabled (bool gitbom_flag)
+{
+  gitbom_enabled = gitbom_flag;
+}
+
 /* Initialize a cpp_reader structure.  */
 cpp_reader *
 cpp_create_reader (enum c_lang lang, cpp_hash_table *table,

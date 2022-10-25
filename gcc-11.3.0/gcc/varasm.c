@@ -61,10 +61,13 @@ along with GCC; see the file COPYING3.  If not see
 #include "alloc-pool.h"
 #include "toplev.h"
 #include "opts.h"
+#include "gitbom.h"
 
 #ifdef XCOFF_DEBUGGING_INFO
 #include "xcoffout.h"		/* Needed for external data declarations.  */
 #endif
+
+#define GITOID_LENGTH 20
 
 /* The (assembler) name of the first globally-visible object output.  */
 extern GTY(()) const char *first_global_object_name;
@@ -139,6 +142,7 @@ section *ctors_section;
 section *dtors_section;
 section *bss_section;
 section *sbss_section;
+section *bom_section;
 
 /* Various forms of common section.  All are guaranteed to be nonnull.  */
 section *tls_comm_section;
@@ -8146,6 +8150,81 @@ elf_record_gcc_switches (const char *options)
 			      | SECTION_STRINGS | (SECTION_ENTSIZE & 1), NULL);
   switch_to_section (sec);
   ASM_OUTPUT_ASCII (asm_out_file, options, strlen (options) + 1);
+}
+
+/* This function provides a possible implementation of the
+   TARGET_ASM_RECORD_GITBOM target hook for ELF targets.  When triggered
+   by -frecord-gitbom, it creates a new mergeable, string section in the
+   assembler output file called TARGET_ASM_RECORD_GITBOM_SECTION which
+   contains the gitoid of the GitBOM Document file.  */
+
+void
+elf_record_gitbom (void)
+{
+  bom_section = get_section (targetm.asm_out.record_gitbom_section,
+			     SECTION_WRITE | SECTION_MERGE
+			     | SECTION_STRINGS | (SECTION_ENTSIZE & 1), NULL);
+  switch_to_section (bom_section);
+}
+
+static unsigned char
+get_decimal (unsigned char c)
+{
+  if (c >= 'a' && c <= 'f')
+    c = c - 97 + 10;
+  else if (c >= 'A' && c <= 'F')
+    c = c - 65 + 10;
+  else if (c >= '0' && c <= '9')
+    c -= 48;
+
+  return c;
+}
+
+/* This function converts an input array which has to contain only hex
+   characters into an array with characters that have real decimal
+   values of those hex characters instead of their ASCII values.
+
+   Example: d b 1 4 8
+	element     decimal_value_of_element    decimal_value_of_new_element
+	   d                  100                           13
+	   b                   98                           11
+	   1                   49                            1
+	   4                   52                            4
+	   8                   56                            8                */
+
+static void
+convert_ascii_hex_to_ascii_decimal (const char * in_array, char *out_array)
+{
+  for (unsigned i = 0; i != strlen (in_array) / 2; i++)
+    {
+      unsigned char c1 = in_array[2 * i];
+      unsigned char c2 = in_array[2 * i + 1];
+
+      c1 = get_decimal (c1);
+      c2 = get_decimal (c2);
+
+      out_array[i] = c2 | c1 << 4;
+    }
+}
+
+/* This function puts the gitoid of the GitBOM Document file in
+   the TARGET_ASM_RECORD_GITBOM_SECTION section.  */
+
+void
+elf_record_gitbom_write_gitoid (std::string gitoid)
+{
+  switch_to_section (bom_section);
+
+  const char *gitoid_array = gitoid.c_str ();
+  char gitoid_array_fin[GITOID_LENGTH];
+  convert_ascii_hex_to_ascii_decimal (gitoid_array, gitoid_array_fin);
+  ASM_OUTPUT_ASCII (asm_out_file, gitoid_array_fin, GITOID_LENGTH);
+
+  if (ferror (asm_out_file) != 0)
+    fatal_error (input_location, "error writing to %s: %m", asm_file_name);
+  if (fclose (asm_out_file) != 0)
+    fatal_error (input_location, "error closing %s: %m", asm_file_name);
+  asm_out_file = NULL;
 }
 
 /* Emit text to declare externally defined symbols. It is needed to
