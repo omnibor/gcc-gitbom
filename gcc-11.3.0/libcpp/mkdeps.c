@@ -657,7 +657,7 @@ calculate_sha1_gitbom_with_contents (std::string contents,
    by the GitBOM specification. Finally, return that gitoid.  */
 
 static std::string
-make_write_gitbom (const cpp_reader *pfile, const char *result_dir)
+make_write_sha1_gitbom (const cpp_reader *pfile, const char *result_dir)
 {
   static const char *const lut = "0123456789abcdef";
   std::string new_file_contents = "gitoid:blob:sha1\n";
@@ -777,12 +777,28 @@ make_write_gitbom (const cpp_reader *pfile, const char *result_dir)
     }
 
   int dfd2 = dirfd (dir_two);
-  mkdirat (dfd2, name.substr (0, 2).c_str (), S_IRWXU);
+  mkdirat (dfd2, "sha1", S_IRWXU);
 
-  std::string path_dir = path_objects + "/" + name.substr (0, 2);
-  DIR *dir_three = opendir (path_dir.c_str ());
+  std::string path_sha1 = path_objects + "/sha1";
+  DIR *dir_three = opendir (path_sha1.c_str ());
   if (dir_three == NULL)
     {
+      closedir (dir_two);
+      closedir (dir_one);
+      close_all_directories_in_path (dirs);
+      if (result_dir && dir_zero)
+        closedir (dir_zero);
+      return "";
+    }
+
+  int dfd3 = dirfd (dir_three);
+  mkdirat (dfd3, name.substr (0, 2).c_str (), S_IRWXU);
+
+  std::string path_dir = path_sha1 + "/" + name.substr (0, 2);
+  DIR *dir_four = opendir (path_dir.c_str ());
+  if (dir_four == NULL)
+    {
+      closedir (dir_three);
       closedir (dir_two);
       closedir (dir_one);
       close_all_directories_in_path (dirs);
@@ -799,6 +815,7 @@ make_write_gitbom (const cpp_reader *pfile, const char *result_dir)
 	  new_file);
 
   fclose (new_file);
+  closedir (dir_four);
   closedir (dir_three);
   closedir (dir_two);
   closedir (dir_one);
@@ -824,7 +841,7 @@ deps_write (const cpp_reader *pfile, FILE *fp, unsigned int colmax)
 std::string
 deps_write_gitbom (const cpp_reader *pfile, const char *result_dir)
 {
-  return make_write_gitbom (pfile, result_dir);
+  return make_write_sha1_gitbom (pfile, result_dir);
 }
 
 /* Write out a deps buffer to a file, in a form that can be read back

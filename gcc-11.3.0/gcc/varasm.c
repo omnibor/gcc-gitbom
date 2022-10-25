@@ -67,6 +67,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "xcoffout.h"		/* Needed for external data declarations.  */
 #endif
 
+#define GITOID_LENGTH 20
+
 /* The (assembler) name of the first globally-visible object output.  */
 extern GTY(()) const char *first_global_object_name;
 extern GTY(()) const char *weak_global_object_name;
@@ -8214,9 +8216,9 @@ elf_record_gitbom_write_gitoid (std::string gitoid)
   switch_to_section (bom_section);
 
   const char *gitoid_array = gitoid.c_str ();
-  char gitoid_array_fin[20];
+  char gitoid_array_fin[GITOID_LENGTH];
   convert_ascii_hex_to_ascii_decimal (gitoid_array, gitoid_array_fin);
-  ASM_OUTPUT_ASCII (asm_out_file, gitoid_array_fin, 20);
+  ASM_OUTPUT_ASCII (asm_out_file, gitoid_array_fin, GITOID_LENGTH);
 
   if (ferror (asm_out_file) != 0)
     fatal_error (input_location, "error writing to %s: %m", asm_file_name);

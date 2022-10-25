@@ -1322,7 +1322,13 @@ c_common_finish (void)
 	}
     }
 
-  /* If the calculation of the GitBOM information is enabled, do it here.  */
+  /* If the calculation of the GitBOM information is enabled, do it here.
+     Also, determine the directory to store GitBOM files in this order of
+     precedence.
+	1. If GITBOM_DIR environment variable is set, use this location.
+	2. Use the directory name passed with -frecord-gitbom option.
+	3. Default is to write the GitBOM files in the same directory as the
+	   object file.  */
   if (flag_record_gitbom || str_record_gitbom
       || (getenv ("GITBOM_DIR") && strlen (getenv ("GITBOM_DIR")) > 0))
     {

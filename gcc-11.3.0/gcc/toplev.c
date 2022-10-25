@@ -2062,7 +2062,7 @@ finalize (bool no_backend)
      whether fclose returns an error, since the pages might still be on the
      buffer chain while the file is open.  If the calculation of the GitBOM
      information is enabled, do not close the asm_out_file because the gitoid
-     of the resulting object file is to be written in the .bom section later,
+     of the resulting gitbom file is to be written in the .bom section later,
      when calculating dependencies for the object file.  */
 
   if (asm_out_file
