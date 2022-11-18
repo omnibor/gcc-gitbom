@@ -815,7 +815,7 @@ DEFHOOKPOD
  "This is the name of the section that will be created by the example\n\
 ELF implementation of the @code{TARGET_ASM_RECORD_GITBOM} target\n\
 hook.",
- const char *, ".bom")
+ const char *, ".note.gitbom")
 
 /* Output the definition of a section anchor.  */
 DEFHOOK

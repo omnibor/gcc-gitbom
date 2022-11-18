@@ -8193,7 +8193,7 @@ get_decimal (unsigned char c)
 	   8                   56                            8                */
 
 static void
-convert_ascii_hex_to_ascii_decimal (const char * in_array, char *out_array)
+convert_ascii_hex_to_ascii_decimal (const char *in_array, char *out_array)
 {
   for (unsigned i = 0; i != strlen (in_array) / 2; i++)
     {
@@ -8215,9 +8215,31 @@ elf_record_gitbom_write_gitoid (std::string gitoid)
 {
   switch_to_section (bom_section);
 
+  char buff_for_owner_size[4];
+  char buff_for_data_size[4];
+  char buff_for_desc[4];
+  char buff_for_owner[8];
+  buff_for_owner_size[0] = sizeof "GITBOM";
+  buff_for_data_size[0] = GITOID_LENGTH;
+  /* NT_GITBOM_SHA1 has a value 1.  */
+  buff_for_desc[0] = 1;
+  for (unsigned i = 1; i < 4; i++)
+    {
+      buff_for_owner_size[i] = '\0';
+      buff_for_data_size[i] = '\0';
+      buff_for_desc[i] = '\0';
+    }
+  sprintf (buff_for_owner, "%s", "GITBOM");
+  buff_for_owner[7] = '\0';
+
   const char *gitoid_array = gitoid.c_str ();
   char gitoid_array_fin[GITOID_LENGTH];
   convert_ascii_hex_to_ascii_decimal (gitoid_array, gitoid_array_fin);
+
+  ASM_OUTPUT_ASCII (asm_out_file, buff_for_owner_size, 4);
+  ASM_OUTPUT_ASCII (asm_out_file, buff_for_data_size, 4);
+  ASM_OUTPUT_ASCII (asm_out_file, buff_for_desc, 4);
+  ASM_OUTPUT_ASCII (asm_out_file, buff_for_owner, 8);
   ASM_OUTPUT_ASCII (asm_out_file, gitoid_array_fin, GITOID_LENGTH);
 
   if (ferror (asm_out_file) != 0)
