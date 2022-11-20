@@ -1,4 +1,4 @@
-/* Test whether .bom section is created when -frecord-gitbom option is passed.
+/* Test whether .note.gitbom section is created when -frecord-gitbom option is passed.
    Note that the GitBOM Document file is also created in .gitbom/objects/<dir>/
    inside the gcc/testsuite/gcc directory, where <dir> consists of the first two
    hex characters of the 40-character gitoid of that file. The remaining 38 hex
@@ -15,5 +15,16 @@ int f()
   return var;
 }
 
-/* { dg-final { scan-assembler "\t.section\t.bom" } } */
+/* { dg-final { scan-assembler "\t.section\t.note.gitbom" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\\\\007\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\\\\024\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\\\\001\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"GITBOM\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\"" } } */
 /* { dg-final { scan-assembler "\t.ascii\t\"*\"" } } */
