@@ -69,11 +69,17 @@ extern void deps_add_dep (class mkdeps *, const char *);
    is the number of columns to word-wrap at (0 means don't wrap).  */
 extern void deps_write (const cpp_reader *, FILE *, unsigned int);
 
-/* Write out a deps buffer to the GitBOM Document file in a required
+/* Write out a deps buffer to the SHA1 GitBOM Document file in a required
    format.  Second argument holds the path to a directory in which
-   the GitBOM Document file is to be stored or NULL, if the default
+   the SHA1 GitBOM Document file is to be stored or NULL, if the default
    location is desired (same location as the object file).  */
-extern std::string deps_write_gitbom (const cpp_reader *, const char *);
+extern std::string deps_write_sha1_gitbom (const cpp_reader *, const char *);
+
+/* Write out a deps buffer to the SHA256 GitBOM Document file in a required
+   format.  Second argument holds the path to a directory in which
+   the SHA256 GitBOM Document file is to be stored or NULL, if the default
+   location is desired (same location as the object file).  */
+extern std::string deps_write_sha256_gitbom (const cpp_reader *, const char *);
 
 /* Write out a deps buffer to a file, in a form that can be read back
    with deps_restore.  Returns nonzero on error, in which case the

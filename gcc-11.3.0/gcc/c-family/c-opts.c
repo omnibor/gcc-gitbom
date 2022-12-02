@@ -1352,13 +1352,23 @@ c_common_finish (void)
             }
         }
 
-      std::string gitoid = "";
+      std::string gitoid_sha1 = "", gitoid_sha256 = "";
       if (gitbom_dir.length () > 0)
-        gitoid = deps_write_gitbom (parse_in, gitbom_dir.c_str());
+        {
+          gitoid_sha1 =
+		deps_write_sha1_gitbom (parse_in, gitbom_dir.c_str());
+          gitoid_sha256 =
+		deps_write_sha256_gitbom (parse_in, gitbom_dir.c_str());
+        }
       else
-        gitoid = deps_write_gitbom (parse_in, NULL);
-      if (gitoid != "")
-        elf_record_gitbom_write_gitoid (gitoid);
+        {
+          gitoid_sha1 =
+		deps_write_sha1_gitbom (parse_in, NULL);
+          gitoid_sha256 =
+		deps_write_sha256_gitbom (parse_in, NULL);
+        }
+      if (gitoid_sha1 != "" && gitoid_sha256 != "")
+        elf_record_gitbom_write_gitoid (gitoid_sha1, gitoid_sha256);
     }
 
   /* For performance, avoid tearing down cpplib's internal structures

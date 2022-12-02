@@ -28,3 +28,15 @@ int f()
 /* { dg-final { scan-assembler "\t.string\t\"GITBOM\"" } } */
 /* { dg-final { scan-assembler "\t.string\t\"\"" } } */
 /* { dg-final { scan-assembler "\t.ascii\t\"*\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\\\\007\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\" \"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\\\\001\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"GITBOM\"" } } */
+/* { dg-final { scan-assembler "\t.string\t\"\"" } } */
+/* { dg-final { scan-assembler "\t.ascii\t\"*\"" } } */

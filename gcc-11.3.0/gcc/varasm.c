@@ -67,7 +67,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "xcoffout.h"		/* Needed for external data declarations.  */
 #endif
 
-#define GITOID_LENGTH 20
+#define GITOID_LENGTH_SHA1 20
+#define GITOID_LENGTH_SHA256 32
 
 /* The (assembler) name of the first globally-visible object output.  */
 extern GTY(()) const char *first_global_object_name;
@@ -8193,9 +8194,10 @@ get_decimal (unsigned char c)
 	   8                   56                            8                */
 
 static void
-convert_ascii_hex_to_ascii_decimal (const char *in_array, char *out_array)
+convert_ascii_hex_to_ascii_decimal (const char *in_array, char *out_array,
+				    unsigned long in_array_half_len)
 {
-  for (unsigned i = 0; i != strlen (in_array) / 2; i++)
+  for (unsigned i = 0; i != in_array_half_len; i++)
     {
       unsigned char c1 = in_array[2 * i];
       unsigned char c2 = in_array[2 * i + 1];
@@ -8211,7 +8213,8 @@ convert_ascii_hex_to_ascii_decimal (const char *in_array, char *out_array)
    the TARGET_ASM_RECORD_GITBOM_SECTION section.  */
 
 void
-elf_record_gitbom_write_gitoid (std::string gitoid)
+elf_record_gitbom_write_gitoid (std::string gitoid_sha1,
+				std::string gitoid_sha256)
 {
   switch_to_section (bom_section);
 
@@ -8219,8 +8222,10 @@ elf_record_gitbom_write_gitoid (std::string gitoid)
   char buff_for_data_size[4];
   char buff_for_desc[4];
   char buff_for_owner[8];
+
+  /* SHA1 entry.  */
   buff_for_owner_size[0] = sizeof "GITBOM";
-  buff_for_data_size[0] = GITOID_LENGTH;
+  buff_for_data_size[0] = GITOID_LENGTH_SHA1;
   /* NT_GITBOM_SHA1 has a value 1.  */
   buff_for_desc[0] = 1;
   for (unsigned i = 1; i < 4; i++)
@@ -8232,15 +8237,43 @@ elf_record_gitbom_write_gitoid (std::string gitoid)
   sprintf (buff_for_owner, "%s", "GITBOM");
   buff_for_owner[7] = '\0';
 
-  const char *gitoid_array = gitoid.c_str ();
-  char gitoid_array_fin[GITOID_LENGTH];
-  convert_ascii_hex_to_ascii_decimal (gitoid_array, gitoid_array_fin);
+  const char *gitoid_array_sha1 = gitoid_sha1.c_str ();
+  char gitoid_array_fin_sha1[GITOID_LENGTH_SHA1];
+  convert_ascii_hex_to_ascii_decimal (gitoid_array_sha1,
+				      gitoid_array_fin_sha1,
+				      GITOID_LENGTH_SHA1);
 
   ASM_OUTPUT_ASCII (asm_out_file, buff_for_owner_size, 4);
   ASM_OUTPUT_ASCII (asm_out_file, buff_for_data_size, 4);
   ASM_OUTPUT_ASCII (asm_out_file, buff_for_desc, 4);
   ASM_OUTPUT_ASCII (asm_out_file, buff_for_owner, 8);
-  ASM_OUTPUT_ASCII (asm_out_file, gitoid_array_fin, GITOID_LENGTH);
+  ASM_OUTPUT_ASCII (asm_out_file, gitoid_array_fin_sha1, GITOID_LENGTH_SHA1);
+
+  /* SHA256 entry.  */
+  buff_for_owner_size[0] = sizeof "GITBOM";
+  buff_for_data_size[0] = GITOID_LENGTH_SHA256;
+  /* NT_GITBOM_SHA256 has a value 2.  */
+  buff_for_desc[0] = 2;
+  for (unsigned i = 1; i < 4; i++)
+    {
+      buff_for_owner_size[i] = '\0';
+      buff_for_data_size[i] = '\0';
+      buff_for_desc[i] = '\0';
+    }
+  sprintf (buff_for_owner, "%s", "GITBOM");
+  buff_for_owner[7] = '\0';
+
+  const char *gitoid_array_sha256 = gitoid_sha256.c_str ();
+  char gitoid_array_fin_sha256[GITOID_LENGTH_SHA256];
+  convert_ascii_hex_to_ascii_decimal (gitoid_array_sha256,
+				      gitoid_array_fin_sha256,
+				      GITOID_LENGTH_SHA256);
+
+  ASM_OUTPUT_ASCII (asm_out_file, buff_for_owner_size, 4);
+  ASM_OUTPUT_ASCII (asm_out_file, buff_for_data_size, 4);
+  ASM_OUTPUT_ASCII (asm_out_file, buff_for_desc, 4);
+  ASM_OUTPUT_ASCII (asm_out_file, buff_for_owner, 8);
+  ASM_OUTPUT_ASCII (asm_out_file, gitoid_array_fin_sha256, GITOID_LENGTH_SHA256);
 
   if (ferror (asm_out_file) != 0)
     fatal_error (input_location, "error writing to %s: %m", asm_file_name);
