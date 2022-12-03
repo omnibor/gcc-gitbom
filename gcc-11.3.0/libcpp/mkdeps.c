@@ -27,7 +27,11 @@ along with this program; see the file COPYING3.  If not see
 #include <algorithm>
 #include <vector>
 #include "../../include/sha1.h"
+#include "sha256.h"
 #include <dirent.h>
+
+#define GITOID_LENGTH_SHA1 20
+#define GITOID_LENGTH_SHA256 32
 
 /* Not set up to just include std::vector et al, here's a simple
    implementation.  */
@@ -588,7 +592,7 @@ close_all_directories_in_path (std::vector<DIR *> dirs)
     closedir (dirs[i]);
 }
 
-/* Calculate the gitoid using the contents of the given file.  */
+/* Calculate the SHA1 gitoid using the contents of the given file.  */
 
 static void
 calculate_sha1_gitbom (FILE* dep_file, unsigned char resblock[])
@@ -620,7 +624,7 @@ calculate_sha1_gitbom (FILE* dep_file, unsigned char resblock[])
   delete [] init_data_char_array;
 }
 
-/* Calculate the gitoid using the given contents.  */
+/* Calculate the SHA1 gitoid using the given contents.  */
 
 static void
 calculate_sha1_gitbom_with_contents (std::string contents,
@@ -635,7 +639,7 @@ calculate_sha1_gitbom_with_contents (std::string contents,
   strcpy (init_data_char_array, init_data. c_str ());
 
   char *file_contents = new char [contents.length () + 1];
-  strcpy(file_contents, contents.c_str ());
+  strcpy (file_contents, contents.c_str ());
 
   /* Calculate the hash.  */
   struct sha1_ctx ctx;
@@ -651,44 +655,87 @@ calculate_sha1_gitbom_with_contents (std::string contents,
   delete [] init_data_char_array;
 }
 
-/* Calculate the gitoids of all the dependencies of the resulting object
-   file and create the GitBOM Document file using them. Then calculate the
-   gitoid of that file and name it with that gitoid in the format specified
-   by the GitBOM specification. Finally, return that gitoid.  */
+/* Calculate the SHA256 gitoid using the contents of the given file.  */
+
+static void
+calculate_sha256_gitbom (FILE* dep_file, unsigned char resblock[])
+{
+  fseek (dep_file, 0L, SEEK_END);
+  long file_size = ftell (dep_file);
+  fseek (dep_file, 0L, SEEK_SET);
+  char buff_for_file_size[sizeof (long)];
+  sprintf (buff_for_file_size, "%ld", file_size);
+
+  std::string init_data = "blob " + std::to_string (file_size) + '\0';
+  char *init_data_char_array = new char [init_data.length () + 1];
+  strcpy (init_data_char_array, init_data.c_str ());
+
+  char *file_contents = new char [file_size];
+  fread (file_contents, 1, file_size, dep_file);
+
+  /* Calculate the hash.  */
+  struct sha256_ctx ctx;
+
+  sha256_init_ctx (&ctx);
+
+  sha256_process_bytes (init_data_char_array, init_data.length (), &ctx);
+  sha256_process_bytes (file_contents, file_size, &ctx);
+
+  sha256_finish_ctx (&ctx, resblock);
+
+  delete [] file_contents;
+  delete [] init_data_char_array;
+}
+
+/* Calculate the SHA256 gitoid using the given contents.  */
+
+static void
+calculate_sha256_gitbom_with_contents (std::string contents,
+				     unsigned char resblock[])
+{
+  long file_size = contents.length ();
+  char buff_for_file_size[sizeof(long)];
+  sprintf (buff_for_file_size, "%ld", file_size);
+
+  std::string init_data = "blob " + std::to_string (file_size) + '\0';
+  char *init_data_char_array = new char [init_data.length () + 1];
+  strcpy (init_data_char_array, init_data. c_str ());
+
+  char *file_contents = new char [contents.length () + 1];
+  strcpy (file_contents, contents.c_str ());
+
+  /* Calculate the hash.  */
+  struct sha256_ctx ctx;
+
+  sha256_init_ctx (&ctx);
+
+  sha256_process_bytes (init_data_char_array, init_data.length(), &ctx);
+  sha256_process_bytes (file_contents, file_size, &ctx);
+
+  sha256_finish_ctx (&ctx, resblock);
+
+  delete [] file_contents;
+  delete [] init_data_char_array;
+}
+
+/* Create the GitBOM Document file using the gitoids of the dependencies and
+   calculate the gitoid of that GitBOM Document file.  Currently, supported
+   hash functions are SHA1 and SHA256, so hash_size has to be either 20 (SHA1)
+   or 32 (SHA256), while hash_func_type has to be either 0 (SHA1) or 1
+   (SHA256).  */
 
 static std::string
-make_write_sha1_gitbom (const cpp_reader *pfile, const char *result_dir)
+create_gitbom_document_file (std::string new_file_contents,
+			     std::vector<std::string> vect_file_contents,
+			     unsigned hash_size,
+			     unsigned hash_func_type,
+			     const char *result_dir)
 {
+  if ((hash_size != GITOID_LENGTH_SHA1 && hash_size != GITOID_LENGTH_SHA256) ||
+      (hash_func_type != 0 && hash_func_type != 1))
+    return "";
+
   static const char *const lut = "0123456789abcdef";
-  std::string new_file_contents = "gitoid:blob:sha1\n";
-  std::vector<std::string> vect_file_contents;
-  std::string temp_file_contents;
-
-  for (unsigned ix = 0; ix != pfile->deps->deps.size (); ix++)
-    {
-      FILE *dep_file = fopen (pfile->deps->deps[ix], "rb");
-      unsigned char resblock[20];
-
-      calculate_sha1_gitbom (dep_file, resblock);
-
-      fclose (dep_file);
-
-      temp_file_contents = "";
-
-      unsigned char high, low;
-      for (unsigned i = 0; i != 20; i++)
-        {
-          high = resblock[i] >> 4;
-          low = resblock[i] & 15;
-          temp_file_contents += lut[high];
-          temp_file_contents += lut[low];
-        }
-
-      vect_file_contents.push_back (temp_file_contents);
-    }
-
-  std::sort (vect_file_contents.begin (), vect_file_contents.end ());
-
   for (unsigned ix = 0; ix != vect_file_contents.size (); ix++)
     {
       new_file_contents += "blob ";
@@ -696,11 +743,14 @@ make_write_sha1_gitbom (const cpp_reader *pfile, const char *result_dir)
       new_file_contents += "\n";
     }
 
-  unsigned char resblock[20];
-  calculate_sha1_gitbom_with_contents (new_file_contents, resblock);
+  unsigned char resblock[hash_size];
+  if (hash_func_type == 0)
+    calculate_sha1_gitbom_with_contents (new_file_contents, resblock);
+  else
+    calculate_sha256_gitbom_with_contents (new_file_contents, resblock);
 
   std::string name = "";
-  for (unsigned i = 0; i != 20; i++)
+  for (unsigned i = 0; i != hash_size; i++)
     {
       name += lut[resblock[i] >> 4];
       name += lut[resblock[i] & 15];
@@ -777,24 +827,46 @@ make_write_sha1_gitbom (const cpp_reader *pfile, const char *result_dir)
     }
 
   int dfd2 = dirfd (dir_two);
-  mkdirat (dfd2, "sha1", S_IRWXU);
 
-  std::string path_sha1 = path_objects + "/sha1";
-  DIR *dir_three = opendir (path_sha1.c_str ());
-  if (dir_three == NULL)
+  std::string path_sha = "";
+  DIR *dir_three = NULL;
+  if (hash_func_type == 0)
     {
-      closedir (dir_two);
-      closedir (dir_one);
-      close_all_directories_in_path (dirs);
-      if (result_dir && dir_zero)
-        closedir (dir_zero);
-      return "";
+      mkdirat (dfd2, "sha1", S_IRWXU);
+
+      path_sha = path_objects + "/sha1";
+      dir_three = opendir (path_sha.c_str ());
+      if (dir_three == NULL)
+        {
+          closedir (dir_two);
+          closedir (dir_one);
+          close_all_directories_in_path (dirs);
+          if (result_dir && dir_zero)
+            closedir (dir_zero);
+          return "";
+        }
+    }
+  else
+    {
+      mkdirat (dfd2, "sha256", S_IRWXU);
+
+      path_sha = path_objects + "/sha256";
+      dir_three = opendir (path_sha.c_str ());
+      if (dir_three == NULL)
+        {
+          closedir (dir_two);
+          closedir (dir_one);
+          close_all_directories_in_path (dirs);
+          if (result_dir && dir_zero)
+            closedir (dir_zero);
+          return "";
+        }
     }
 
   int dfd3 = dirfd (dir_three);
   mkdirat (dfd3, name.substr (0, 2).c_str (), S_IRWXU);
 
-  std::string path_dir = path_sha1 + "/" + name.substr (0, 2);
+  std::string path_dir = path_sha + "/" + name.substr (0, 2);
   DIR *dir_four = opendir (path_dir.c_str ());
   if (dir_four == NULL)
     {
@@ -826,6 +898,98 @@ make_write_sha1_gitbom (const cpp_reader *pfile, const char *result_dir)
   return name;
 }
 
+/* Calculate the gitoids of all the dependencies of the resulting object
+   file and create the GitBOM Document file using them.  Then calculate the
+   gitoid of that file and name it with that gitoid in the format specified
+   by the GitBOM specification.  Finally, return that gitoid.  Use SHA1
+   hashing algorithm for calculating all the gitoids.  */
+
+static std::string
+make_write_sha1_gitbom (const cpp_reader *pfile, const char *result_dir)
+{
+  static const char *const lut = "0123456789abcdef";
+  std::string new_file_contents = "gitoid:blob:sha1\n";
+  std::vector<std::string> vect_file_contents;
+  std::string temp_file_contents;
+
+  for (unsigned ix = 0; ix != pfile->deps->deps.size (); ix++)
+    {
+      FILE *dep_file = fopen (pfile->deps->deps[ix], "rb");
+      unsigned char resblock[GITOID_LENGTH_SHA1];
+
+      calculate_sha1_gitbom (dep_file, resblock);
+
+      fclose (dep_file);
+
+      temp_file_contents = "";
+
+      unsigned char high, low;
+      for (unsigned i = 0; i != GITOID_LENGTH_SHA1; i++)
+        {
+          high = resblock[i] >> 4;
+          low = resblock[i] & 15;
+          temp_file_contents += lut[high];
+          temp_file_contents += lut[low];
+        }
+
+      vect_file_contents.push_back (temp_file_contents);
+    }
+
+  std::sort (vect_file_contents.begin (), vect_file_contents.end ());
+
+  return create_gitbom_document_file (new_file_contents,
+				      vect_file_contents,
+				      GITOID_LENGTH_SHA1,
+				      0,
+				      result_dir);
+}
+
+/* Calculate the gitoids of all the dependencies of the resulting object
+   file and create the GitBOM Document file using them.  Then calculate the
+   gitoid of that file and name it with that gitoid in the format specified
+   by the GitBOM specification.  Finally, return that gitoid.  Use SHA256
+   hashing algorithm for calculating all the gitoids.  */
+
+static std::string
+make_write_sha256_gitbom (const cpp_reader *pfile, const char *result_dir)
+{
+  static const char *const lut = "0123456789abcdef";
+  std::string new_file_contents = "gitoid:blob:sha256\n";
+  std::vector<std::string> vect_file_contents;
+  std::string temp_file_contents;
+
+  for (unsigned ix = 0; ix != pfile->deps->deps.size (); ix++)
+    {
+      FILE *dep_file = fopen (pfile->deps->deps[ix], "rb");
+      unsigned char resblock[GITOID_LENGTH_SHA256];
+
+      calculate_sha256_gitbom (dep_file, resblock);
+
+      fclose (dep_file);
+
+      temp_file_contents = "";
+
+      unsigned char high, low;
+      for (unsigned i = 0; i != GITOID_LENGTH_SHA256; i++)
+        {
+          high = resblock[i] >> 4;
+          low = resblock[i] & 15;
+          temp_file_contents += lut[high];
+          temp_file_contents += lut[low];
+        }
+
+      vect_file_contents.push_back (temp_file_contents);
+    }
+
+  std::sort (vect_file_contents.begin (), vect_file_contents.end ());
+
+  return create_gitbom_document_file (new_file_contents,
+				      vect_file_contents,
+				      GITOID_LENGTH_SHA256,
+				      1,
+				      result_dir);
+}
+
 /* Write out dependencies according to the selected format (which is
    only Make at the moment).  */
 /* Really we should be opening fp here.  */
@@ -836,12 +1000,22 @@ deps_write (const cpp_reader *pfile, FILE *fp, unsigned int colmax)
   make_write (pfile, fp, colmax);
 }
 
-/* Calculate and write out GitBOM information.  */
+/* Calculate and write out GitBOM information using SHA1 hashing
+   algorithm.  */
 
 std::string
-deps_write_gitbom (const cpp_reader *pfile, const char *result_dir)
+deps_write_sha1_gitbom (const cpp_reader *pfile, const char *result_dir)
 {
   return make_write_sha1_gitbom (pfile, result_dir);
+}
+
+/* Calculate and write out GitBOM information using SHA256 hashing
+   algorithm.  */
+
+std::string
+deps_write_sha256_gitbom (const cpp_reader *pfile, const char *result_dir)
+{
+  return make_write_sha256_gitbom (pfile, result_dir);
 }
 
 /* Write out a deps buffer to a file, in a form that can be read back
