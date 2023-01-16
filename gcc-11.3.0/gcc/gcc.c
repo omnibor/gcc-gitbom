@@ -43,6 +43,12 @@ compilation is specified by a string called a "spec".  */
 #include "opts.h"
 #include "filenames.h"
 #include "spellcheck.h"
+#include "sha1.h"
+#include "sha256.h"
+#include <dirent.h>
+
+#define GITOID_LENGTH_SHA1 20
+#define GITOID_LENGTH_SHA256 32
 
 
 
@@ -8001,6 +8007,694 @@ compare_files (char *cmpfile[])
   return ret;
 }
 
+/* Append the string str2 to the end of the string str1.  */
+
+void
+gitbom_append_to_string (char **str1, const char *str2,
+			 unsigned long len1, unsigned long len2)
+{
+  *str1 = (char *) xrealloc
+	(*str1, sizeof (char) * (len1 + len2 + 1));
+  strcat (*str1, str2);
+}
+
+/* Set the string str1 to have the contents of the string str2.  */
+
+static void
+gitbom_set_contents (char **str1, const char *str2, unsigned long len)
+{
+  *str1 = (char *) xrealloc
+	(*str1, sizeof (char) * (len + 1));
+  strcpy (*str1, str2);
+}
+
+/* Return the position of the first occurrence after start_pos position
+   of char c in str string (start_pos is the first position to check),
+   otherwise -1.  */
+
+int
+gitbom_find_char_from_pos (unsigned start_pos, char c, const char *str)
+{
+  if (str)
+    for (unsigned ix = start_pos; ix < strlen (str); ++ix)
+      if (str[ix] == c)
+	return ix;
+
+  return -1;
+}
+
+/* Return the position of the last occurrence of char c in the entire
+   str string, otherwise -1.  */
+
+static int
+gitbom_find_last_of (char c, const char *str)
+{
+  int ret = -1;
+  for (unsigned ix = 0; ix < strlen (str); ix++)
+    if (str[ix] == c)
+      ret = ix;
+
+  return ret;
+}
+
+/* Get the substring of length len of the str2 string starting from
+   the start position and put it in the str1 string.  */
+
+void
+gitbom_substr (char **str1, unsigned start, unsigned len,
+	       const char *str2)
+{
+  if (str2)
+    {
+      *str1 = (char *) xrealloc
+	(*str1, sizeof (char) * (len + 1));
+      strncpy (*str1, str2 + start, len);
+      (*str1)[len] = '\0';
+    }
+}
+
+/* Returns true if -c option is specified in the COLLECT_GCC_OPTIONS
+   environment variable, otherwise false.  */
+
+bool
+is_c_option_specified (void)
+{
+  char *temp = (char *) xcalloc (1, sizeof (char));
+  const char *gcc_options = env.get ("COLLECT_GCC_OPTIONS");
+
+  int old_i = 0, i = 0;
+  while ((i = gitbom_find_char_from_pos (i, ' ', gcc_options)) != -1)
+    {
+      gitbom_substr (&temp, old_i, i - old_i, gcc_options);
+      if (strcmp ("'-c'", temp) == 0)
+	{
+	  free (temp);
+	  return true;
+	}
+
+      i = i + 1;
+      old_i = i;
+    }
+
+  free (temp);
+  return false;
+}
+
+/* Stores 1 if the -frecord-gitbom option is specified in the
+   COLLECT_GCC_OPTIONS environment variable, 2 if -frecord-gitbom=<dir>
+   is specified or 0 otherwise in the memory pointed to by
+   is_gitbom_enabled argument.  If -frecord-gitbom=<dir> is specified,
+   <dir> is stored in the memory pointed to by dir.  */
+
+void
+is_gitbom_option_specified (int* is_gitbom_enabled, char **dir)
+{
+  char *temp = (char *) xcalloc (1, sizeof (char));
+  const char *gcc_options = env.get ("COLLECT_GCC_OPTIONS");
+
+  int old_i = 0, i = 0;
+  while ((i = gitbom_find_char_from_pos (i, ' ', gcc_options)) != -1)
+    {
+      gitbom_substr (&temp, old_i, i - old_i, gcc_options);
+      if (strncmp ("'-frecord-gitbom=", temp,
+		   strlen ("'-frecord-gitbom=")) == 0)
+	{
+	  *is_gitbom_enabled = 2;
+	  gitbom_substr (&temp, old_i + 17, i - old_i - 17 - 1, gcc_options);
+	  gitbom_set_contents (dir, temp, strlen (temp));
+	  free (temp);
+	  return;
+	}
+      if (strcmp ("'-frecord-gitbom'", temp) == 0)
+	{
+	  *is_gitbom_enabled = 1;
+	  gitbom_set_contents (dir, "", 0);
+	  free (temp);
+	  return;
+	}
+
+      i = i + 1;
+      old_i = i;
+    }
+
+  *is_gitbom_enabled = 0;
+  gitbom_set_contents (dir, "", 0);
+  free (temp);
+  return;
+}
+
+/* Calculate the SHA1 gitoid using the contents of the given file.  */
+
+void
+calculate_sha1_gitbom (FILE *dep_file, unsigned char resblock[])
+{
+  fseek (dep_file, 0L, SEEK_END);
+  long file_size = ftell (dep_file);
+  fseek (dep_file, 0L, SEEK_SET);
+
+  /* This length should be enough for everything up to 64B, which should
+     cover long type.  */
+  char buff_for_file_size[200];
+  sprintf (buff_for_file_size, "%ld", file_size);
+
+  char *init_data = (char *) xcalloc (1, sizeof (char));
+  gitbom_append_to_string (&init_data, "blob ", strlen (init_data),
+			   strlen ("blob "));
+  gitbom_append_to_string (&init_data, buff_for_file_size, strlen (init_data),
+			   strlen (buff_for_file_size));
+  gitbom_append_to_string (&init_data, "\0", strlen (init_data), 1);
+
+  char *file_contents = (char *) xcalloc (file_size, sizeof (char));
+  fread (file_contents, 1, file_size, dep_file);
+
+  /* Calculate the hash.  */
+  struct sha1_ctx ctx;
+
+  sha1_init_ctx (&ctx);
+
+  sha1_process_bytes (init_data, strlen (init_data) + 1, &ctx);
+  sha1_process_bytes (file_contents, file_size, &ctx);
+
+  sha1_finish_ctx (&ctx, resblock);
+
+  free (file_contents);
+  free (init_data);
+}
+
+/* Calculate the SHA256 gitoid using the contents of the given file.  */
+
+void
+calculate_sha256_gitbom (FILE *dep_file, unsigned char resblock[])
+{
+  fseek (dep_file, 0L, SEEK_END);
+  long file_size = ftell (dep_file);
+  fseek (dep_file, 0L, SEEK_SET);
+
+  /* This length should be enough for everything up to 64B, which should
+     cover long type.  */
+  char buff_for_file_size[200];
+  sprintf (buff_for_file_size, "%ld", file_size);
+
+  char *init_data = (char *) xcalloc (1, sizeof (char));
+  gitbom_append_to_string (&init_data, "blob ", strlen (init_data),
+			   strlen ("blob "));
+  gitbom_append_to_string (&init_data, buff_for_file_size, strlen (init_data),
+			   strlen (buff_for_file_size));
+  gitbom_append_to_string (&init_data, "\0", strlen (init_data), 1);
+
+  char *file_contents = (char *) xcalloc (file_size, sizeof (char));
+  fread (file_contents, 1, file_size, dep_file);
+
+  /* Calculate the hash.  */
+  struct sha256_ctx ctx;
+
+  sha256_init_ctx (&ctx);
+
+  sha256_process_bytes (init_data, strlen (init_data) + 1, &ctx);
+  sha256_process_bytes (file_contents, file_size, &ctx);
+
+  sha256_finish_ctx (&ctx, resblock);
+
+  free (file_contents);
+  free (init_data);
+}
+
+/* Parse the SHA1 gitoid from the .note.gitbom section.  */
+
+void
+get_sha1_gitoid (char **gitoid, FILE *command)
+{
+  char line[1000], line1[1000], line2[1000];
+  int line_cnt = 0;
+  bool flag = false;
+  while (fgets (line, sizeof (line), command) != NULL)
+    {
+      if (flag)
+	{
+	  ++line_cnt;
+	  if (line_cnt == 2)
+	    strcpy (line1, line);
+	  else if (line_cnt == 3)
+	    {
+	      strcpy (line2, line);
+	      break;
+	    }
+	}
+      if (strcmp ("Hex dump of section '.note.gitbom':\n", line) == 0)
+	flag = true;
+    }
+
+  char *temp = (char *) xcalloc (1, sizeof (char));
+  int old_i = 0, i = 0;
+  line_cnt = 0;
+  flag = false;
+  while ((i = gitbom_find_char_from_pos (i, ' ', line1)) != -1)
+    {
+      gitbom_substr (&temp, old_i, i - old_i, line1);
+      if (flag)
+	{
+	  ++line_cnt;
+	  if (line_cnt < 4)
+	    gitbom_append_to_string (gitoid, temp, strlen (*gitoid),
+				     strlen (temp));
+	  else
+	    break;
+	}
+      if (strcmp ("4f4d0000", temp) == 0 && !flag)
+	flag = true;
+
+      i = i + 1;
+      old_i = i;
+    }
+  line_cnt = 0;
+  old_i = 0;
+  i = 0;
+  while ((i = gitbom_find_char_from_pos (i, ' ', line2)) != -1)
+    {
+      gitbom_substr (&temp, old_i, i - old_i, line2);
+      if (strlen (temp) > 0)
+	++line_cnt;
+      if (line_cnt > 1 && line_cnt < 4)
+	gitbom_append_to_string (gitoid, temp, strlen (*gitoid),
+				 strlen (temp));
+      else if (line_cnt >= 4)
+	break;
+
+      i = i + 1;
+      old_i = i;
+    }
+
+  free (temp);
+}
+
+/* Parse the SHA256 gitoid from the .note.gitbom section.  */
+
+void
+get_sha256_gitoid (char **gitoid, FILE *command)
+{
+  char line[1000], line1[1000], line2[1000], line3[1000];
+  int line_cnt = 0;
+  bool flag = false;
+  while (fgets (line, sizeof (line), command) != NULL)
+    {
+      if (flag)
+	{
+	  ++line_cnt;
+	  if (line_cnt == 4)
+	    strcpy (line1, line);
+	  else if (line_cnt == 5)
+	    strcpy (line2, line);
+	  else if (line_cnt == 6)
+	    {
+	      strcpy (line3, line);
+	      break;
+	    }
+	}
+      if (strcmp ("Hex dump of section '.note.gitbom':\n", line) == 0)
+	flag = true;
+    }
+
+  char *temp = (char *) xcalloc (1, sizeof (char));
+  int old_i = 0, i = 0;
+  flag = false;
+  while ((i = gitbom_find_char_from_pos (i, ' ', line1)) != -1)
+    {
+      gitbom_substr (&temp, old_i, i - old_i, line1);
+      if (flag)
+	{
+	  gitbom_append_to_string (gitoid, temp, strlen (*gitoid),
+				   strlen (temp));
+	  break;
+	}
+      if (strcmp ("4f4d0000", temp) == 0 && !flag)
+	flag = true;
+
+      i = i + 1;
+      old_i = i;
+    }
+  line_cnt = 0;
+  old_i = 0;
+  i = 0;
+  while ((i = gitbom_find_char_from_pos (i, ' ', line2)) != -1)
+    {
+      gitbom_substr (&temp, old_i, i - old_i, line2);
+      if (strlen (temp) > 0)
+	++line_cnt;
+      if (line_cnt > 1 && line_cnt < 6)
+	gitbom_append_to_string (gitoid, temp, strlen (*gitoid),
+				 strlen (temp));
+      else if (line_cnt >= 6)
+	break;
+
+      i = i + 1;
+      old_i = i;
+    }
+  line_cnt = 0;
+  old_i = 0;
+  i = 0;
+  while ((i = gitbom_find_char_from_pos (i, ' ', line3)) != -1)
+    {
+      gitbom_substr (&temp, old_i, i - old_i, line3);
+      if (strlen (temp) > 0)
+	++line_cnt;
+      if (line_cnt > 1 && line_cnt < 5)
+	{
+	  gitbom_append_to_string (gitoid, temp, strlen (*gitoid),
+				   strlen (temp));
+	}
+      else if (line_cnt >= 5)
+	break;
+
+      i = i + 1;
+      old_i = i;
+    }
+
+  free (temp);
+}
+
+/* Retrieve the gitoid of the GitBOM Document file from the .note.gitbom
+   section of the generated object file.  If ind == 0, return the SHA1
+   gitoid, otherwise return the SHA256 gitoid.  */
+
+void
+get_gitbom_document_file_gitoid (char **gitoid, unsigned ind)
+{
+  FILE *command;
+  char *command_str = (char *) xcalloc (1, sizeof (char));
+  gitbom_append_to_string (&command_str, "readelf -x .note.gitbom ",
+			   strlen (command_str),
+			   strlen ("readelf -x .note.gitbom "));
+  gitbom_append_to_string (&command_str, output_file,
+			   strlen (command_str),
+			   strlen (output_file));
+
+  command = popen (command_str, "r");
+  if (command != NULL)
+    {
+      if (ind == 0)
+	get_sha1_gitoid (gitoid, command);
+      else
+	get_sha256_gitoid (gitoid, command);
+    }
+
+  pclose (command);
+  free (command_str);
+}
+
+/* Get the path of the directory where the resulting object file will be
+   stored, because the GitBOM information should be stored there as well,
+   in the default case (when GITBOM_DIR environment variable is not set
+   and -frecord-gitbom=<arg> is not used, but -frecord-gitbom is used
+   instead).  */
+
+void
+gitbom_get_object_destdir (const char *gcc_opts, char **res)
+{
+  char *path = (char *) xcalloc (1, sizeof (char));
+  char *temp = (char *) xcalloc (1, sizeof (char));
+
+  int old_i = 0, i = 0;
+  while ((i = gitbom_find_char_from_pos (i, ' ', gcc_opts)) != -1)
+    {
+      gitbom_substr (&temp, old_i, i - old_i, gcc_opts);
+      if (strcmp ("'-o'", temp) == 0)
+	{
+	  i = i + 1;
+	  old_i = i;
+
+	  if ((i = gitbom_find_char_from_pos (i, ' ', gcc_opts)) != -1)
+	    {
+	      gitbom_substr (&temp, old_i + 1, i - old_i - 2, gcc_opts);
+	      gitbom_set_contents (&path, temp, strlen (temp));
+	      i = i + 1;
+	      old_i = i;
+	    }
+	}
+      else
+	{
+	  i = i + 1;
+	  old_i = i;
+	}
+    }
+
+  /* Last argument cannot be '-o' because gcc error will be raised that a
+     filename is missing after that option in that case.  */
+  i = -1;
+
+  /* If there was a valid '-o' option, parse the directory part of the path
+     and put it in the res parameter.  */
+  if ((i = gitbom_find_last_of ('/', path)) != -1)
+    {
+      gitbom_substr (&temp, 0, i, path);
+      gitbom_set_contents (res, temp, strlen (temp));
+    }
+  else
+    gitbom_set_contents (res, "", 0);
+
+  free (temp);
+  free (path);
+}
+
+/* Find the directory in which the GitBOM information should be stored
+   and put it in option_dir.  If the GITBOM_DIR environment variable is
+   set, the GitBOM information should be stored in the directory which
+   represents its value, otherwise check is_gitbom_option_enabled.  If
+   is_gitbom_option_enabled is 2, -frecord-gitbom=<dir> option is used,
+   so the GitBOM information should be stored in <dir>.  If
+   is_gitbom_option_enabled is 1, -frecord-gitbom option is used, so the
+   GitBOM information should be stored in the same directory where the
+   object file is generated.  */
+
+void
+gitbom_find_destdir (char **gitbom_dir, int is_gitbom_option_enabled,
+		     char *option_dir)
+{
+  const char *env_gitbom = env.get ("GITBOM_DIR");
+  if (env_gitbom)
+    gitbom_set_contents (gitbom_dir, env_gitbom, strlen (env_gitbom));
+
+  if (strlen (*gitbom_dir) == 0)
+    {
+      if (is_gitbom_option_enabled == 2)
+	{
+	  gitbom_set_contents (gitbom_dir, option_dir,
+			       strlen (option_dir));
+	}
+      else if (is_gitbom_option_enabled == 1)
+	{
+	  char *res = (char *) xcalloc (1, sizeof (char));
+
+	  gitbom_get_object_destdir (env.get ("COLLECT_GCC_OPTIONS"), &res);
+	  if (strlen (res) > 0)
+	    gitbom_set_contents (gitbom_dir, res, strlen (res));
+	  else
+	    gitbom_set_contents (gitbom_dir, "", 0);
+
+	  free (res);
+	}
+    }
+}
+
+void
+create_sha1_symlink (int is_gitbom_option_enabled, char *option_dir)
+{
+  static const char *const lut = "0123456789abcdef";
+  char *gitoid_exec_sha1 = (char *) xcalloc (1, sizeof (char));
+  char *high_ch = (char *) xmalloc (sizeof (char) * 2);
+  high_ch[1] = '\0';
+  char *low_ch = (char *) xmalloc (sizeof (char) * 2);
+  low_ch[1] = '\0';
+
+  FILE *file_executable = fopen (output_file, "rb");
+  unsigned char resblock[GITOID_LENGTH_SHA1];
+
+  calculate_sha1_gitbom (file_executable, resblock);
+
+  fclose (file_executable);
+
+  for (unsigned i = 0; i != GITOID_LENGTH_SHA1; i++)
+    {
+      high_ch[0] = lut[resblock[i] >> 4];
+      low_ch[0] = lut[resblock[i] & 15];
+      gitbom_append_to_string (&gitoid_exec_sha1, high_ch, i * 2, 2);
+      gitbom_append_to_string (&gitoid_exec_sha1, low_ch, i * 2 + 1, 2);
+    }
+
+  char *gitoid_gitbom_doc = (char *) xcalloc (1, sizeof (char));
+  get_gitbom_document_file_gitoid (&gitoid_gitbom_doc, 0);
+
+  char *path_adg = (char *) xcalloc (1, sizeof (char));
+  DIR *dir = NULL, *dir_adg = NULL;
+  char *res_dir = (char *) xcalloc (1, sizeof (char));
+  gitbom_find_destdir (&res_dir, is_gitbom_option_enabled, option_dir);
+
+  if (strcmp ("", res_dir) != 0)
+    {
+      dir = opendir (res_dir);
+      if (dir == NULL)
+	{
+	  free (res_dir);
+	  free (path_adg);
+	  free (gitoid_gitbom_doc);
+	  free (low_ch);
+	  free (high_ch);
+	  free (gitoid_exec_sha1);
+	  return;
+	}
+
+      int dfd = dirfd (dir);
+      mkdirat (dfd, ".adg", S_IRWXU);
+      gitbom_append_to_string (&path_adg, res_dir, strlen (path_adg),
+			       strlen (res_dir));
+      gitbom_append_to_string (&path_adg, "/.adg", strlen (path_adg),
+			       strlen ("/.adg"));
+    }
+  else
+    {
+      mkdir (".adg", S_IRWXU);
+      gitbom_append_to_string (&path_adg, res_dir, strlen (path_adg),
+			       strlen (res_dir));
+      gitbom_append_to_string (&path_adg, ".adg", strlen (path_adg),
+			       strlen (".adg"));
+    }
+
+  dir_adg = opendir (path_adg);
+  if (dir_adg == NULL)
+    {
+      if (strcmp ("", res_dir) != 0)
+	closedir (dir);
+      free (res_dir);
+      free (path_adg);
+      free (gitoid_gitbom_doc);
+      free (low_ch);
+      free (high_ch);
+      free (gitoid_exec_sha1);
+      return;
+    }
+
+  int dfd_adg = dirfd (dir_adg);
+  symlinkat (gitoid_gitbom_doc, dfd_adg, gitoid_exec_sha1);
+
+  closedir (dir_adg);
+  if (strcmp ("", res_dir) != 0)
+    closedir (dir);
+  free (res_dir);
+  free (path_adg);
+  free (gitoid_gitbom_doc);
+  free (low_ch);
+  free (high_ch);
+  free (gitoid_exec_sha1);
+}
+
+void
+create_sha256_symlink (int is_gitbom_option_enabled, char *option_dir)
+{
+  static const char *const lut = "0123456789abcdef";
+  char *gitoid_exec_sha256 = (char *) xcalloc (1, sizeof (char));
+  char *high_ch = (char *) xmalloc (sizeof (char) * 2);
+  high_ch[1] = '\0';
+  char *low_ch = (char *) xmalloc (sizeof (char) * 2);
+  low_ch[1] = '\0';
+
+  FILE *file_executable = fopen (output_file, "rb");
+  unsigned char resblock[GITOID_LENGTH_SHA256];
+
+  calculate_sha256_gitbom (file_executable, resblock);
+
+  fclose (file_executable);
+
+  for (unsigned i = 0; i != GITOID_LENGTH_SHA256; i++)
+    {
+      high_ch[0] = lut[resblock[i] >> 4];
+      low_ch[0] = lut[resblock[i] & 15];
+      gitbom_append_to_string (&gitoid_exec_sha256, high_ch, i * 2, 2);
+      gitbom_append_to_string (&gitoid_exec_sha256, low_ch, i * 2 + 1, 2);
+    }
+
+  char *gitoid_gitbom_doc = (char *) xcalloc (1, sizeof (char));
+  get_gitbom_document_file_gitoid (&gitoid_gitbom_doc, 1);
+
+  char *path_adg = (char *) xcalloc (1, sizeof (char));
+  DIR *dir = NULL, *dir_adg = NULL;
+  char *res_dir = (char *) xcalloc (1, sizeof (char));
+  gitbom_find_destdir (&res_dir, is_gitbom_option_enabled, option_dir);
+
+  if (strcmp ("", res_dir) != 0)
+    {
+      dir = opendir (res_dir);
+      if (dir == NULL)
+	{
+	  free (res_dir);
+	  free (path_adg);
+	  free (gitoid_gitbom_doc);
+	  free (low_ch);
+	  free (high_ch);
+	  free (gitoid_exec_sha256);
+	  return;
+	}
+
+      int dfd = dirfd (dir);
+      mkdirat (dfd, ".adg", S_IRWXU);
+      gitbom_append_to_string (&path_adg, res_dir, strlen (path_adg),
+			       strlen (res_dir));
+      gitbom_append_to_string (&path_adg, "/.adg", strlen (path_adg),
+			       strlen ("/.adg"));
+    }
+  else
+    {
+      mkdir (".adg", S_IRWXU);
+      gitbom_append_to_string (&path_adg, res_dir, strlen (path_adg),
+			       strlen (res_dir));
+      gitbom_append_to_string (&path_adg, ".adg", strlen (path_adg),
+			       strlen (".adg"));
+    }
+
+  dir_adg = opendir (path_adg);
+  if (dir_adg == NULL)
+    {
+      if (strcmp ("", res_dir) != 0)
+	closedir (dir);
+      free (res_dir);
+      free (path_adg);
+      free (gitoid_gitbom_doc);
+      free (low_ch);
+      free (high_ch);
+      free (gitoid_exec_sha256);
+      return;
+    }
+
+  int dfd_adg = dirfd (dir_adg);
+  symlinkat (gitoid_gitbom_doc, dfd_adg, gitoid_exec_sha256);
+
+  closedir (dir_adg);
+  if (strcmp ("", res_dir) != 0)
+    closedir (dir);
+  free (res_dir);
+  free (path_adg);
+  free (gitoid_gitbom_doc);
+  free (low_ch);
+  free (high_ch);
+  free (gitoid_exec_sha256);
+}
+
+void
+driver::create_symlinks_gitbom () const
+{
+  if (is_c_option_specified () && output_file)
+    {
+      int is_gitbom_option_enabled;
+      char *option_dir = (char *) xcalloc (1, sizeof (char));
+      is_gitbom_option_specified (&is_gitbom_option_enabled, &option_dir);
+      if (is_gitbom_option_enabled == 1 || is_gitbom_option_enabled == 2
+	  || (env.get ("GITBOM_DIR") && strlen (env.get ("GITBOM_DIR")) > 0))
+	{
+	  create_sha1_symlink (is_gitbom_option_enabled, option_dir);
+	  create_sha256_symlink (is_gitbom_option_enabled, option_dir);
+	}
+      free (option_dir);
+    }
+}
+
 driver::driver (bool can_finalize, bool debug) :
   explicit_link_files (NULL),
   decoded_options (NULL)
@@ -8047,6 +8741,13 @@ driver::main (int argc, char **argv)
     return get_exit_code ();
 
   do_spec_on_infiles ();
+  /* FIXME: Function create_symlinks_gitbom works only when compilation
+     step is being done (when -c option is being passed) and when the
+     name of the output file is specified with the -o option.  The support
+     for creating symlinks in the GitBOM concept when the GitBOM Document
+     file gitoid is extracted from the assembly file (when -S option is
+     used) should potentially be implemented as well.  */
+  create_symlinks_gitbom ();
   maybe_run_linker (argv[0]);
   final_actions ();
   return get_exit_code ();
