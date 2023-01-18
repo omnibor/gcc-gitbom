@@ -8746,8 +8746,11 @@ driver::main (int argc, char **argv)
      name of the output file is specified with the -o option.  The support
      for creating symlinks in the GitBOM concept when the GitBOM Document
      file gitoid is extracted from the assembly file (when -S option is
-     used) should potentially be implemented as well.  */
-  create_symlinks_gitbom ();
+     used) should potentially be implemented as well.  Call this function
+     only in the NO_EMBED case (when GITBOM_NO_EMBED environment variable
+     is set).  */
+  if (env.get ("GITBOM_NO_EMBED"))
+    create_symlinks_gitbom ();
   maybe_run_linker (argv[0]);
   final_actions ();
   return get_exit_code ();
