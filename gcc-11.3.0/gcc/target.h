@@ -90,7 +90,7 @@ extern unsigned HOST_WIDE_INT by_pieces_ninsns (unsigned HOST_WIDE_INT,
 extern void elf_record_gcc_switches (const char *);
 
 /* An example implementation for ELF targets.  Defined in varasm.c  */
-extern void elf_record_gitbom (void);
+extern void elf_record_omnibor (void);
 
 /* Some places still assume that all pointer or address modes are the
    standard Pmode and ptr_mode.  These optimizations become invalid if

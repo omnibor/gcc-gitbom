@@ -795,27 +795,27 @@ hook.",
 
 /* Output a record of the gitoid of an artifact.  */
 DEFHOOK
-(record_gitbom,
+(record_omnibor,
  "Provides the target with the ability to record the gitoid of an\n\
 artifact.\n\
 \n\
 By default this hook is set to NULL, but an example implementation is\n\
-provided for ELF based targets.  Called @var{elf_record_gitbom},\n\
+provided for ELF based targets.  Called @var{elf_record_omnibor},\n\
 it records the gitoid as ASCII text inside a new, string mergeable\n\
 section in the assembler output file.  The name of the new section is\n\
-provided by the @code{TARGET_ASM_RECORD_GITBOM_SECTION} target\n\
+provided by the @code{TARGET_ASM_RECORD_OMNIBOR_SECTION} target\n\
 hook.",
  void, (void),
  NULL)
 
 /* The name of the section that the example ELF implementation of
-   record_gitbom will use to store the information.  */
+   record_omnibor will use to store the information.  */
 DEFHOOKPOD
-(record_gitbom_section,
+(record_omnibor_section,
  "This is the name of the section that will be created by the example\n\
-ELF implementation of the @code{TARGET_ASM_RECORD_GITBOM} target\n\
+ELF implementation of the @code{TARGET_ASM_RECORD_OMNIBOR} target\n\
 hook.",
- const char *, ".note.gitbom")
+ const char *, ".note.omnibor")
 
 /* Output the definition of a section anchor.  */
 DEFHOOK

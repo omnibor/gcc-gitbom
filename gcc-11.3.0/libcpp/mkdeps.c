@@ -595,7 +595,7 @@ close_all_directories_in_path (std::vector<DIR *> dirs)
 /* Calculate the SHA1 gitoid using the contents of the given file.  */
 
 static void
-calculate_sha1_gitbom (FILE* dep_file, unsigned char resblock[])
+calculate_sha1_omnibor (FILE* dep_file, unsigned char resblock[])
 {
   fseek (dep_file, 0L, SEEK_END);
   long file_size = ftell (dep_file);
@@ -627,8 +627,8 @@ calculate_sha1_gitbom (FILE* dep_file, unsigned char resblock[])
 /* Calculate the SHA1 gitoid using the given contents.  */
 
 static void
-calculate_sha1_gitbom_with_contents (std::string contents,
-				     unsigned char resblock[])
+calculate_sha1_omnibor_with_contents (std::string contents,
+				      unsigned char resblock[])
 {
   long file_size = contents.length ();
   char buff_for_file_size[sizeof(long)];
@@ -658,7 +658,7 @@ calculate_sha1_gitbom_with_contents (std::string contents,
 /* Calculate the SHA256 gitoid using the contents of the given file.  */
 
 static void
-calculate_sha256_gitbom (FILE* dep_file, unsigned char resblock[])
+calculate_sha256_omnibor (FILE* dep_file, unsigned char resblock[])
 {
   fseek (dep_file, 0L, SEEK_END);
   long file_size = ftell (dep_file);
@@ -690,8 +690,8 @@ calculate_sha256_gitbom (FILE* dep_file, unsigned char resblock[])
 /* Calculate the SHA256 gitoid using the given contents.  */
 
 static void
-calculate_sha256_gitbom_with_contents (std::string contents,
-				     unsigned char resblock[])
+calculate_sha256_omnibor_with_contents (std::string contents,
+					unsigned char resblock[])
 {
   long file_size = contents.length ();
   char buff_for_file_size[sizeof(long)];
@@ -718,18 +718,18 @@ calculate_sha256_gitbom_with_contents (std::string contents,
   delete [] init_data_char_array;
 }
 
-/* Create the GitBOM Document file using the gitoids of the dependencies and
-   calculate the gitoid of that GitBOM Document file.  Currently, supported
+/* Create the OmniBOR Document file using the gitoids of the dependencies and
+   calculate the gitoid of that OmniBOR Document file.  Currently, supported
    hash functions are SHA1 and SHA256, so hash_size has to be either 20 (SHA1)
    or 32 (SHA256), while hash_func_type has to be either 0 (SHA1) or 1
    (SHA256).  */
 
 static std::string
-create_gitbom_document_file (std::string new_file_contents,
-			     std::vector<std::string> vect_file_contents,
-			     unsigned hash_size,
-			     unsigned hash_func_type,
-			     const char *result_dir)
+create_omnibor_document_file (std::string new_file_contents,
+			      std::vector<std::string> vect_file_contents,
+			      unsigned hash_size,
+			      unsigned hash_func_type,
+			      const char *result_dir)
 {
   if ((hash_size != GITOID_LENGTH_SHA1 && hash_size != GITOID_LENGTH_SHA256) ||
       (hash_func_type != 0 && hash_func_type != 1))
@@ -745,9 +745,9 @@ create_gitbom_document_file (std::string new_file_contents,
 
   unsigned char resblock[hash_size];
   if (hash_func_type == 0)
-    calculate_sha1_gitbom_with_contents (new_file_contents, resblock);
+    calculate_sha1_omnibor_with_contents (new_file_contents, resblock);
   else
-    calculate_sha256_gitbom_with_contents (new_file_contents, resblock);
+    calculate_sha256_omnibor_with_contents (new_file_contents, resblock);
 
   std::string name = "";
   for (unsigned i = 0; i != hash_size; i++)
@@ -757,32 +757,32 @@ create_gitbom_document_file (std::string new_file_contents,
     }
 
   std::string new_file_path;
-  std::string path_gitbom = ".gitbom";
-  DIR *dir_zero = NULL;
+  std::string path_objects = "objects";
+  DIR *dir_one = NULL;
   std::vector<DIR *> dirs;
 
   if (result_dir)
     {
-      if ((dir_zero = opendir (result_dir)) == NULL)
+      if ((dir_one = opendir (result_dir)) == NULL)
         {
           mkdir (result_dir, S_IRWXU);
-	  dir_zero = opendir (result_dir);
+	  dir_one = opendir (result_dir);
 	}
 
-      if (dir_zero != NULL)
+      if (dir_one != NULL)
         {
           std::string res_dir = result_dir;
-          path_gitbom = res_dir + "/" + path_gitbom;
-          int dfd0 = dirfd (dir_zero);
-          mkdirat (dfd0, ".gitbom", S_IRWXU);
+	  path_objects = res_dir + "/" + path_objects;
+	  int dfd1 = dirfd (dir_one);
+	  mkdirat (dfd1, "objects", S_IRWXU);
         }
       else if (strlen (result_dir) != 0)
         {
           DIR *final_dir = open_all_directories_in_path (result_dir, &dirs);
-          /* If an error occurred, illegal path is detected and GitBOM information
-             is not written.  */
-          /* TODO: Maybe put a message here that a specified path, in which GitBOM
-             information should be stored, is illegal.  */
+	  /* If an error occurred, illegal path is detected and the OmniBOR
+	     information is not written.  */
+	  /* TODO: Maybe put a message here that a specified path, in which
+	     the OmniBOR information should be stored, is illegal.  */
           if (final_dir == NULL)
             {
               close_all_directories_in_path (dirs);
@@ -791,38 +791,24 @@ create_gitbom_document_file (std::string new_file_contents,
           else
             {
               std::string res_dir = result_dir;
-              path_gitbom = res_dir + "/" + path_gitbom;
-              int dfd0 = dirfd (final_dir);
-              mkdirat (dfd0, ".gitbom", S_IRWXU);
+	      path_objects = res_dir + "/" + path_objects;
+	      int dfd1 = dirfd (final_dir);
+	      mkdirat (dfd1, "objects", S_IRWXU);
             }
         }
       else
-        mkdir (".gitbom", S_IRWXU);
+	mkdir ("objects", S_IRWXU);
     }
-  /* Put the GitBOM Document file in the current working directory.  */
+  /* Put the OmniBOR Document file in the current working directory.  */
   else
-    mkdir (".gitbom", S_IRWXU);
+    mkdir ("objects", S_IRWXU);
 
-  DIR *dir_one = opendir (path_gitbom.c_str ());
-  if (dir_one == NULL)
-    {
-      close_all_directories_in_path (dirs);
-      if (result_dir && dir_zero)
-        closedir (dir_zero);
-      return "";
-    }
-
-  int dfd1 = dirfd (dir_one);
-  mkdirat (dfd1, "objects", S_IRWXU);
-
-  std::string path_objects = path_gitbom + "/objects";
   DIR *dir_two = opendir (path_objects.c_str ());
   if (dir_two == NULL)
     {
-      closedir (dir_one);
       close_all_directories_in_path (dirs);
-      if (result_dir && dir_zero)
-        closedir (dir_zero);
+      if (result_dir && dir_one)
+	closedir (dir_one);
       return "";
     }
 
@@ -832,33 +818,31 @@ create_gitbom_document_file (std::string new_file_contents,
   DIR *dir_three = NULL;
   if (hash_func_type == 0)
     {
-      mkdirat (dfd2, "sha1", S_IRWXU);
+      mkdirat (dfd2, "gitoid_blob_sha1", S_IRWXU);
 
-      path_sha = path_objects + "/sha1";
+      path_sha = path_objects + "/gitoid_blob_sha1";
       dir_three = opendir (path_sha.c_str ());
       if (dir_three == NULL)
         {
           closedir (dir_two);
-          closedir (dir_one);
           close_all_directories_in_path (dirs);
-          if (result_dir && dir_zero)
-            closedir (dir_zero);
+	  if (result_dir && dir_one)
+	    closedir (dir_one);
           return "";
         }
     }
   else
     {
-      mkdirat (dfd2, "sha256", S_IRWXU);
+      mkdirat (dfd2, "gitoid_blob_sha256", S_IRWXU);
 
-      path_sha = path_objects + "/sha256";
+      path_sha = path_objects + "/gitoid_blob_sha256";
       dir_three = opendir (path_sha.c_str ());
       if (dir_three == NULL)
         {
           closedir (dir_two);
-          closedir (dir_one);
           close_all_directories_in_path (dirs);
-          if (result_dir && dir_zero)
-            closedir (dir_zero);
+	  if (result_dir && dir_one)
+	    closedir (dir_one);
           return "";
         }
     }
@@ -872,10 +856,9 @@ create_gitbom_document_file (std::string new_file_contents,
     {
       closedir (dir_three);
       closedir (dir_two);
-      closedir (dir_one);
       close_all_directories_in_path (dirs);
-      if (result_dir && dir_zero)
-        closedir (dir_zero);
+      if (result_dir && dir_one)
+	closedir (dir_one);
       return "";
     }
 
@@ -890,22 +873,21 @@ create_gitbom_document_file (std::string new_file_contents,
   closedir (dir_four);
   closedir (dir_three);
   closedir (dir_two);
-  closedir (dir_one);
   close_all_directories_in_path (dirs);
-  if (result_dir && dir_zero)
-    closedir (dir_zero);
+  if (result_dir && dir_one)
+    closedir (dir_one);
 
   return name;
 }
 
 /* Calculate the gitoids of all the dependencies of the resulting object
-   file and create the GitBOM Document file using them.  Then calculate the
+   file and create the OmniBOR Document file using them.  Then calculate the
    gitoid of that file and name it with that gitoid in the format specified
-   by the GitBOM specification.  Finally, return that gitoid.  Use SHA1
+   by the OmniBOR specification.  Finally, return that gitoid.  Use SHA1
    hashing algorithm for calculating all the gitoids.  */
 
 static std::string
-make_write_sha1_gitbom (const cpp_reader *pfile, const char *result_dir)
+make_write_sha1_omnibor (const cpp_reader *pfile, const char *result_dir)
 {
   static const char *const lut = "0123456789abcdef";
   std::string new_file_contents = "gitoid:blob:sha1\n";
@@ -917,7 +899,7 @@ make_write_sha1_gitbom (const cpp_reader *pfile, const char *result_dir)
       FILE *dep_file = fopen (pfile->deps->deps[ix], "rb");
       unsigned char resblock[GITOID_LENGTH_SHA1];
 
-      calculate_sha1_gitbom (dep_file, resblock);
+      calculate_sha1_omnibor (dep_file, resblock);
 
       fclose (dep_file);
 
@@ -937,21 +919,21 @@ make_write_sha1_gitbom (const cpp_reader *pfile, const char *result_dir)
 
   std::sort (vect_file_contents.begin (), vect_file_contents.end ());
 
-  return create_gitbom_document_file (new_file_contents,
-				      vect_file_contents,
-				      GITOID_LENGTH_SHA1,
-				      0,
-				      result_dir);
+  return create_omnibor_document_file (new_file_contents,
+				       vect_file_contents,
+				       GITOID_LENGTH_SHA1,
+				       0,
+				       result_dir);
 }
 
 /* Calculate the gitoids of all the dependencies of the resulting object
-   file and create the GitBOM Document file using them.  Then calculate the
+   file and create the OmniBOR Document file using them.  Then calculate the
    gitoid of that file and name it with that gitoid in the format specified
-   by the GitBOM specification.  Finally, return that gitoid.  Use SHA256
+   by the OmniBOR specification.  Finally, return that gitoid.  Use SHA256
    hashing algorithm for calculating all the gitoids.  */
 
 static std::string
-make_write_sha256_gitbom (const cpp_reader *pfile, const char *result_dir)
+make_write_sha256_omnibor (const cpp_reader *pfile, const char *result_dir)
 {
   static const char *const lut = "0123456789abcdef";
   std::string new_file_contents = "gitoid:blob:sha256\n";
@@ -963,7 +945,7 @@ make_write_sha256_gitbom (const cpp_reader *pfile, const char *result_dir)
       FILE *dep_file = fopen (pfile->deps->deps[ix], "rb");
       unsigned char resblock[GITOID_LENGTH_SHA256];
 
-      calculate_sha256_gitbom (dep_file, resblock);
+      calculate_sha256_omnibor (dep_file, resblock);
 
       fclose (dep_file);
 
@@ -983,11 +965,11 @@ make_write_sha256_gitbom (const cpp_reader *pfile, const char *result_dir)
 
   std::sort (vect_file_contents.begin (), vect_file_contents.end ());
 
-  return create_gitbom_document_file (new_file_contents,
-				      vect_file_contents,
-				      GITOID_LENGTH_SHA256,
-				      1,
-				      result_dir);
+  return create_omnibor_document_file (new_file_contents,
+				       vect_file_contents,
+				       GITOID_LENGTH_SHA256,
+				       1,
+				       result_dir);
 }
 
 /* Write out dependencies according to the selected format (which is
@@ -1000,22 +982,22 @@ deps_write (const cpp_reader *pfile, FILE *fp, unsigned int colmax)
   make_write (pfile, fp, colmax);
 }
 
-/* Calculate and write out GitBOM information using SHA1 hashing
+/* Calculate and write out the OmniBOR information using SHA1 hashing
    algorithm.  */
 
 std::string
-deps_write_sha1_gitbom (const cpp_reader *pfile, const char *result_dir)
+deps_write_sha1_omnibor (const cpp_reader *pfile, const char *result_dir)
 {
-  return make_write_sha1_gitbom (pfile, result_dir);
+  return make_write_sha1_omnibor (pfile, result_dir);
 }
 
-/* Calculate and write out GitBOM information using SHA256 hashing
+/* Calculate and write out the OmniBOR information using SHA256 hashing
    algorithm.  */
 
 std::string
-deps_write_sha256_gitbom (const cpp_reader *pfile, const char *result_dir)
+deps_write_sha256_omnibor (const cpp_reader *pfile, const char *result_dir)
 {
-  return make_write_sha256_gitbom (pfile, result_dir);
+  return make_write_sha256_omnibor (pfile, result_dir);
 }
 
 /* Write out a deps buffer to a file, in a form that can be read back

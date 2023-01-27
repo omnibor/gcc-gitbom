@@ -5200,9 +5200,9 @@ It must not be modified by command-line option processing.
 
 @hook TARGET_ASM_RECORD_GCC_SWITCHES_SECTION
 
-@hook TARGET_ASM_RECORD_GITBOM
+@hook TARGET_ASM_RECORD_OMNIBOR
 
-@hook TARGET_ASM_RECORD_GITBOM_SECTION
+@hook TARGET_ASM_RECORD_OMNIBOR_SECTION
 
 @need 2000
 @node Data Output

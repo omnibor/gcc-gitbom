@@ -41,7 +41,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "mkdeps.h"
 #include "dumpfile.h"
 #include "file-prefix-map.h"    /* add_*_prefix_map()  */
-#include "gitbom.h"
+#include "omnibor.h"
 
 #ifndef DOLLARS_IN_IDENTIFIERS
 # define DOLLARS_IN_IDENTIFIERS true
@@ -1255,12 +1255,12 @@ get_dump_info (int phase, dump_flags_t *flags)
 }
 
 /* Get the path of the directory where the resulting object file will be
-   stored, because the GitBOM information should be stored there as well,
-   in the default case (when GITBOM_DIR environment variable is not set
-   and -frecord-gitbom=<arg> is not used).  */
+   stored, because the OmniBOR information should be stored there as well,
+   in the default case (when OMNIBOR_DIR environment variable is not set
+   and -frecord-omnibor=<arg> is not used).  */
 
 void
-gitbom_get_destdir (const char *collect_gcc_options, std::string *res)
+omnibor_get_destdir (const char *collect_gcc_options, std::string *res)
 {
   std::string path = "";
   std::string gcc_opts = collect_gcc_options;
@@ -1322,53 +1322,53 @@ c_common_finish (void)
 	}
     }
 
-  /* If the calculation of the GitBOM information is enabled, do it here.
-     Also, determine the directory to store GitBOM files in this order of
+  /* If the calculation of the OmniBOR information is enabled, do it here.
+     Also, determine the directory to store the OmniBOR files in this order of
      precedence.
-	1. If GITBOM_DIR environment variable is set, use this location.
-	2. Use the directory name passed with -frecord-gitbom option.
-	3. Default is to write the GitBOM files in the same directory as the
+	1. If OMNIBOR_DIR environment variable is set, use this location.
+	2. Use the directory name passed with -frecord-omnibor option.
+	3. Default is to store the OmniBOR files in the same directory as the
 	   object file.  */
-  if (flag_record_gitbom || str_record_gitbom
-      || (getenv ("GITBOM_DIR") && strlen (getenv ("GITBOM_DIR")) > 0))
+  if (flag_record_omnibor || str_record_omnibor
+      || (getenv ("OMNIBOR_DIR") && strlen (getenv ("OMNIBOR_DIR")) > 0))
     {
-      std::string gitbom_dir = "";
+      std::string omnibor_dir = "";
 
-      const char *env_gitbom = getenv ("GITBOM_DIR");
-      if (env_gitbom != NULL)
-        gitbom_dir = env_gitbom;
-      if (gitbom_dir == "")
+      const char *env_omnibor = getenv ("OMNIBOR_DIR");
+      if (env_omnibor != NULL)
+	omnibor_dir = env_omnibor;
+      if (omnibor_dir == "")
         {
-          if (str_record_gitbom)
-            gitbom_dir = str_record_gitbom;
+	  if (str_record_omnibor)
+	    omnibor_dir = str_record_omnibor;
           else
             {
               std::string res = "";
-              gitbom_get_destdir (getenv ("COLLECT_GCC_OPTIONS"), &res);
+	      omnibor_get_destdir (getenv ("COLLECT_GCC_OPTIONS"), &res);
               if (res.length () > 0)
-                gitbom_dir = res;
+		omnibor_dir = res;
               else
-                gitbom_dir = "";
+		omnibor_dir = "";
             }
         }
 
       std::string gitoid_sha1 = "", gitoid_sha256 = "";
-      if (gitbom_dir.length () > 0)
+      if (omnibor_dir.length () > 0)
         {
           gitoid_sha1 =
-		deps_write_sha1_gitbom (parse_in, gitbom_dir.c_str());
+		deps_write_sha1_omnibor (parse_in, omnibor_dir.c_str());
           gitoid_sha256 =
-		deps_write_sha256_gitbom (parse_in, gitbom_dir.c_str());
+		deps_write_sha256_omnibor (parse_in, omnibor_dir.c_str());
         }
       else
         {
           gitoid_sha1 =
-		deps_write_sha1_gitbom (parse_in, NULL);
+		deps_write_sha1_omnibor (parse_in, NULL);
           gitoid_sha256 =
-		deps_write_sha256_gitbom (parse_in, NULL);
+		deps_write_sha256_omnibor (parse_in, NULL);
         }
       if (gitoid_sha1 != "" && gitoid_sha256 != "")
-        elf_record_gitbom_write_gitoid (gitoid_sha1, gitoid_sha256);
+	elf_record_omnibor_write_gitoid (gitoid_sha1, gitoid_sha256);
     }
 
   /* For performance, avoid tearing down cpplib's internal structures

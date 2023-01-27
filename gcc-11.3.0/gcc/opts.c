@@ -2321,11 +2321,11 @@ common_handle_option (struct gcc_options *opts,
 		      diagnostic_context *dc,
 		      void (*target_option_override_hook) (void))
 {
-  if (strcmp ("-frecord-gitbom", decoded->orig_option_with_args_text) == 0
-      || strncmp ("-frecord-gitbom=", decoded->orig_option_with_args_text,
-		  strlen ("-frecord-gitbom=")) == 0
-      || (getenv ("GITBOM_DIR") && strlen (getenv ("GITBOM_DIR")) > 0))
-    set_gitbom_enabled (true);
+  if (strcmp ("-frecord-omnibor", decoded->orig_option_with_args_text) == 0
+      || strncmp ("-frecord-omnibor=", decoded->orig_option_with_args_text,
+		  strlen ("-frecord-omnibor=")) == 0
+      || (getenv ("OMNIBOR_DIR") && strlen (getenv ("OMNIBOR_DIR")) > 0))
+    set_omnibor_enabled (true);
 
   size_t scode = decoded->opt_index;
   const char *arg = decoded->arg;
