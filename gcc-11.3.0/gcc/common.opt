@@ -2325,14 +2325,15 @@ frecord-gcc-switches
 Common Var(flag_record_gcc_switches)
 Record gcc command line switches in the object file.
 
-frecord-gitbom
-Common Var(flag_record_gitbom)
-Record gitoid of an artifact in the object file and calculate GitBOM information.
+frecord-omnibor
+Common Var(flag_record_omnibor)
+Record gitoid of an artifact in the object file and calculate the OmniBOR information.
 
-frecord-gitbom=
-Common RejectNegative Joined Var(str_record_gitbom)
-Record gitoid of an artifact in the object file and calculate GitBOM information. Store that
-information in the specified directory, unless GITBOM_DIR environment variable is set as well.
+frecord-omnibor=
+Common RejectNegative Joined Var(str_record_omnibor)
+Record gitoid of an artifact in the object file and calculate the OmniBOR information. Store
+that information in the specified directory, unless the OMNIBOR_DIR environment variable is
+set as well.
 
 freg-struct-return
 Common Var(flag_pcc_struct_return,0) Optimization

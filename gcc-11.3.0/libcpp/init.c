@@ -176,12 +176,12 @@ init_library (void)
     }
 }
 
-bool gitbom_enabled = false;
+bool omnibor_enabled = false;
 
 void
-set_gitbom_enabled (bool gitbom_flag)
+set_omnibor_enabled (bool omnibor_flag)
 {
-  gitbom_enabled = gitbom_flag;
+  omnibor_enabled = omnibor_flag;
 }
 
 /* Initialize a cpp_reader structure.  */

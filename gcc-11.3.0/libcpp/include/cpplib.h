@@ -38,11 +38,11 @@ typedef struct cpp_dir cpp_dir;
 
 struct _cpp_file;
 
-/* Flag which indicates whether the calculation of the GitBOM information
+/* Flag which indicates whether the calculation of the OmniBOR information
    is enabled.  */
-extern bool gitbom_enabled;
+extern bool omnibor_enabled;
 
-extern void set_gitbom_enabled (bool);
+extern void set_omnibor_enabled (bool);
 
 /* The first three groups, apart from '=', can appear in preprocessor
    expressions (+= and -= are used to indicate unary + and - resp.).

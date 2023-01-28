@@ -61,7 +61,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "alloc-pool.h"
 #include "toplev.h"
 #include "opts.h"
-#include "gitbom.h"
+#include "omnibor.h"
 
 #ifdef XCOFF_DEBUGGING_INFO
 #include "xcoffout.h"		/* Needed for external data declarations.  */
@@ -143,7 +143,7 @@ section *ctors_section;
 section *dtors_section;
 section *bss_section;
 section *sbss_section;
-section *bom_section;
+section *omnibor_section;
 
 /* Various forms of common section.  All are guaranteed to be nonnull.  */
 section *tls_comm_section;
@@ -8154,18 +8154,18 @@ elf_record_gcc_switches (const char *options)
 }
 
 /* This function provides a possible implementation of the
-   TARGET_ASM_RECORD_GITBOM target hook for ELF targets.  When triggered
-   by -frecord-gitbom, it creates a new mergeable, string section in the
-   assembler output file called TARGET_ASM_RECORD_GITBOM_SECTION which
-   contains the gitoid of the GitBOM Document file.  */
+   TARGET_ASM_RECORD_OMNIBOR target hook for ELF targets.  When triggered
+   by -frecord-omnibor, it creates a new mergeable, string section in the
+   assembler output file called TARGET_ASM_RECORD_OMNIBOR_SECTION which
+   contains the gitoid of the OmniBOR Document file.  */
 
 void
-elf_record_gitbom (void)
+elf_record_omnibor (void)
 {
-  bom_section = get_section (targetm.asm_out.record_gitbom_section,
-			     SECTION_WRITE | SECTION_MERGE
-			     | SECTION_STRINGS | (SECTION_ENTSIZE & 1), NULL);
-  switch_to_section (bom_section);
+  omnibor_section = get_section (targetm.asm_out.record_omnibor_section,
+				 SECTION_WRITE | SECTION_MERGE
+				 | SECTION_STRINGS | (SECTION_ENTSIZE & 1), NULL);
+  switch_to_section (omnibor_section);
 }
 
 static unsigned char
@@ -8209,14 +8209,14 @@ convert_ascii_hex_to_ascii_decimal (const char *in_array, char *out_array,
     }
 }
 
-/* This function puts the gitoid of the GitBOM Document file in
-   the TARGET_ASM_RECORD_GITBOM_SECTION section.  */
+/* This function puts the gitoid of the OmniBOR Document file in
+   the TARGET_ASM_RECORD_OMNIBOR_SECTION section.  */
 
 void
-elf_record_gitbom_write_gitoid (std::string gitoid_sha1,
-				std::string gitoid_sha256)
+elf_record_omnibor_write_gitoid (std::string gitoid_sha1,
+				 std::string gitoid_sha256)
 {
-  switch_to_section (bom_section);
+  switch_to_section (omnibor_section);
 
   char buff_for_owner_size[4];
   char buff_for_data_size[4];
@@ -8224,9 +8224,9 @@ elf_record_gitbom_write_gitoid (std::string gitoid_sha1,
   char buff_for_owner[8];
 
   /* SHA1 entry.  */
-  buff_for_owner_size[0] = sizeof "GITBOM";
+  buff_for_owner_size[0] = sizeof "OMNIBOR";
   buff_for_data_size[0] = GITOID_LENGTH_SHA1;
-  /* NT_GITBOM_SHA1 has a value 1.  */
+  /* NT_GITOID_SHA1 has a value 1.  */
   buff_for_desc[0] = 1;
   for (unsigned i = 1; i < 4; i++)
     {
@@ -8234,7 +8234,7 @@ elf_record_gitbom_write_gitoid (std::string gitoid_sha1,
       buff_for_data_size[i] = '\0';
       buff_for_desc[i] = '\0';
     }
-  sprintf (buff_for_owner, "%s", "GITBOM");
+  sprintf (buff_for_owner, "%s", "OMNIBOR");
   buff_for_owner[7] = '\0';
 
   const char *gitoid_array_sha1 = gitoid_sha1.c_str ();
@@ -8250,9 +8250,9 @@ elf_record_gitbom_write_gitoid (std::string gitoid_sha1,
   ASM_OUTPUT_ASCII (asm_out_file, gitoid_array_fin_sha1, GITOID_LENGTH_SHA1);
 
   /* SHA256 entry.  */
-  buff_for_owner_size[0] = sizeof "GITBOM";
+  buff_for_owner_size[0] = sizeof "OMNIBOR";
   buff_for_data_size[0] = GITOID_LENGTH_SHA256;
-  /* NT_GITBOM_SHA256 has a value 2.  */
+  /* NT_GITOID_SHA256 has a value 2.  */
   buff_for_desc[0] = 2;
   for (unsigned i = 1; i < 4; i++)
     {
@@ -8260,7 +8260,7 @@ elf_record_gitbom_write_gitoid (std::string gitoid_sha1,
       buff_for_data_size[i] = '\0';
       buff_for_desc[i] = '\0';
     }
-  sprintf (buff_for_owner, "%s", "GITBOM");
+  sprintf (buff_for_owner, "%s", "OMNIBOR");
   buff_for_owner[7] = '\0';
 
   const char *gitoid_array_sha256 = gitoid_sha256.c_str ();

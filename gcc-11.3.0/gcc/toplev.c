@@ -743,14 +743,14 @@ init_asm_output (const char *name)
 		    "the current target");
 	}
 
-      if (flag_record_gitbom || str_record_gitbom
-          || (getenv ("GITBOM_DIR") && strlen (getenv ("GITBOM_DIR")) > 0))
+      if (flag_record_omnibor || str_record_omnibor
+	  || (getenv ("OMNIBOR_DIR") && strlen (getenv ("OMNIBOR_DIR")) > 0))
 	{
-	  if (targetm.asm_out.record_gitbom)
-	      targetm.asm_out.record_gitbom ();
+	  if (targetm.asm_out.record_omnibor)
+	      targetm.asm_out.record_omnibor ();
 	  else
 	    inform (UNKNOWN_LOCATION,
-		    "%<-frecord-gitbom%> is not supported by "
+		    "%<-frecord-omnibor%> is not supported by "
 		    "the current target");
 	}
 
@@ -2060,14 +2060,14 @@ finalize (bool no_backend)
 
   /* Close non-debugging input and output files.  Take special care to note
      whether fclose returns an error, since the pages might still be on the
-     buffer chain while the file is open.  If the calculation of the GitBOM
+     buffer chain while the file is open.  If the calculation of the OmniBOR
      information is enabled, do not close the asm_out_file because the gitoid
-     of the resulting gitbom file is to be written in the .note.gitbom section
+     of the resulting omnibor file is to be written in the .note.omnibor section
      later, when calculating dependencies for the object file.  */
 
   if (asm_out_file
-      && !(flag_record_gitbom || str_record_gitbom
-           || (getenv ("GITBOM_DIR") && strlen (getenv ("GITBOM_DIR")) > 0)))
+      && !(flag_record_omnibor || str_record_omnibor
+	   || (getenv ("OMNIBOR_DIR") && strlen (getenv ("OMNIBOR_DIR")) > 0)))
     {
       if (ferror (asm_out_file) != 0)
 	fatal_error (input_location, "error writing to %s: %m", asm_file_name);
