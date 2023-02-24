@@ -49,6 +49,7 @@ compilation is specified by a string called a "spec".  */
 
 #define GITOID_LENGTH_SHA1 20
 #define GITOID_LENGTH_SHA256 32
+#define MAX_LONG_SIZE_STRING_LENGTH 256
 
 
 
@@ -8015,7 +8016,8 @@ omnibor_append_to_string (char **str1, const char *str2,
 {
   *str1 = (char *) xrealloc
 	(*str1, sizeof (char) * (len1 + len2 + 1));
-  strcat (*str1, str2);
+  memcpy (*str1 + len1, str2, len2);
+  (*str1)[len1 + len2] = '\0';
 }
 
 /* Set the string str1 to have the contents of the string str2.  */
@@ -8025,7 +8027,8 @@ omnibor_set_contents (char **str1, const char *str2, unsigned long len)
 {
   *str1 = (char *) xrealloc
 	(*str1, sizeof (char) * (len + 1));
-  strcpy (*str1, str2);
+  memcpy (*str1, str2, len);
+  (*str1)[len] = '\0';
 }
 
 /* Return the position of the first occurrence after start_pos position
@@ -8068,7 +8071,7 @@ omnibor_substr (char **str1, unsigned start, unsigned len,
     {
       *str1 = (char *) xrealloc
 	(*str1, sizeof (char) * (len + 1));
-      strncpy (*str1, str2 + start, len);
+      memcpy (*str1, str2 + start, len);
       (*str1)[len] = '\0';
     }
 }
@@ -8154,7 +8157,7 @@ calculate_sha1_omnibor (FILE *dep_file, unsigned char resblock[])
 
   /* This length should be enough for everything up to 64B, which should
      cover long type.  */
-  char buff_for_file_size[200];
+  char buff_for_file_size[MAX_LONG_SIZE_STRING_LENGTH];
   sprintf (buff_for_file_size, "%ld", file_size);
 
   char *init_data = (char *) xcalloc (1, sizeof (char));
@@ -8192,7 +8195,7 @@ calculate_sha256_omnibor (FILE *dep_file, unsigned char resblock[])
 
   /* This length should be enough for everything up to 64B, which should
      cover long type.  */
-  char buff_for_file_size[200];
+  char buff_for_file_size[MAX_LONG_SIZE_STRING_LENGTH];
   sprintf (buff_for_file_size, "%ld", file_size);
 
   char *init_data = (char *) xcalloc (1, sizeof (char));
@@ -8233,10 +8236,10 @@ get_sha1_gitoid (char **gitoid, FILE *command)
 	{
 	  ++line_cnt;
 	  if (line_cnt == 2)
-	    strcpy (line1, line);
+	    memcpy (line1, line, 1000);
 	  else if (line_cnt == 3)
 	    {
-	      strcpy (line2, line);
+	      memcpy (line2, line, 1000);
 	      break;
 	    }
 	}
@@ -8301,12 +8304,12 @@ get_sha256_gitoid (char **gitoid, FILE *command)
 	{
 	  ++line_cnt;
 	  if (line_cnt == 4)
-	    strcpy (line1, line);
+	    memcpy (line1, line, 1000);
 	  else if (line_cnt == 5)
-	    strcpy (line2, line);
+	    memcpy (line2, line, 1000);
 	  else if (line_cnt == 6)
 	    {
-	      strcpy (line3, line);
+	      memcpy (line3, line, 1000);
 	      break;
 	    }
 	}

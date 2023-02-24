@@ -32,6 +32,7 @@ along with this program; see the file COPYING3.  If not see
 
 #define GITOID_LENGTH_SHA1 20
 #define GITOID_LENGTH_SHA256 32
+#define MAX_LONG_SIZE_STRING_LENGTH 256
 
 /* Not set up to just include std::vector et al, here's a simple
    implementation.  */
@@ -600,12 +601,13 @@ calculate_sha1_omnibor (FILE* dep_file, unsigned char resblock[])
   fseek (dep_file, 0L, SEEK_END);
   long file_size = ftell (dep_file);
   fseek (dep_file, 0L, SEEK_SET);
-  char buff_for_file_size[sizeof (long)];
+  char buff_for_file_size[MAX_LONG_SIZE_STRING_LENGTH];
   sprintf (buff_for_file_size, "%ld", file_size);
 
   std::string init_data = "blob " + std::to_string (file_size) + '\0';
   char *init_data_char_array = new char [init_data.length () + 1];
-  strcpy (init_data_char_array, init_data.c_str ());
+  memcpy (init_data_char_array, init_data.c_str (), init_data.length ());
+  init_data_char_array[init_data.length()] = '\0';
 
   char *file_contents = new char [file_size];
   fread (file_contents, 1, file_size, dep_file);
@@ -631,15 +633,17 @@ calculate_sha1_omnibor_with_contents (std::string contents,
 				      unsigned char resblock[])
 {
   long file_size = contents.length ();
-  char buff_for_file_size[sizeof(long)];
+  char buff_for_file_size[MAX_LONG_SIZE_STRING_LENGTH];
   sprintf (buff_for_file_size, "%ld", file_size);
 
   std::string init_data = "blob " + std::to_string (file_size) + '\0';
   char *init_data_char_array = new char [init_data.length () + 1];
-  strcpy (init_data_char_array, init_data. c_str ());
+  memcpy (init_data_char_array, init_data.c_str (), init_data.length ());
+  init_data_char_array[init_data.length()] = '\0';
 
   char *file_contents = new char [contents.length () + 1];
-  strcpy (file_contents, contents.c_str ());
+  memcpy (file_contents, contents.c_str (), contents.length ());
+  file_contents[contents.length()] = '\0';
 
   /* Calculate the hash.  */
   struct sha1_ctx ctx;
@@ -663,12 +667,13 @@ calculate_sha256_omnibor (FILE* dep_file, unsigned char resblock[])
   fseek (dep_file, 0L, SEEK_END);
   long file_size = ftell (dep_file);
   fseek (dep_file, 0L, SEEK_SET);
-  char buff_for_file_size[sizeof (long)];
+  char buff_for_file_size[MAX_LONG_SIZE_STRING_LENGTH];
   sprintf (buff_for_file_size, "%ld", file_size);
 
   std::string init_data = "blob " + std::to_string (file_size) + '\0';
   char *init_data_char_array = new char [init_data.length () + 1];
-  strcpy (init_data_char_array, init_data.c_str ());
+  memcpy (init_data_char_array, init_data.c_str (), init_data.length ());
+  init_data_char_array[init_data.length()] = '\0';
 
   char *file_contents = new char [file_size];
   fread (file_contents, 1, file_size, dep_file);
@@ -694,15 +699,17 @@ calculate_sha256_omnibor_with_contents (std::string contents,
 					unsigned char resblock[])
 {
   long file_size = contents.length ();
-  char buff_for_file_size[sizeof(long)];
+  char buff_for_file_size[MAX_LONG_SIZE_STRING_LENGTH];
   sprintf (buff_for_file_size, "%ld", file_size);
 
   std::string init_data = "blob " + std::to_string (file_size) + '\0';
   char *init_data_char_array = new char [init_data.length () + 1];
-  strcpy (init_data_char_array, init_data. c_str ());
+  memcpy (init_data_char_array, init_data.c_str (), init_data.length ());
+  init_data_char_array[init_data.length()] = '\0';
 
   char *file_contents = new char [contents.length () + 1];
-  strcpy (file_contents, contents.c_str ());
+  memcpy (file_contents, contents.c_str (), contents.length ());
+  file_contents[contents.length()] = '\0';
 
   /* Calculate the hash.  */
   struct sha256_ctx ctx;
