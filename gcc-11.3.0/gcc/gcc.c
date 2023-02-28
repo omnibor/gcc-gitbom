@@ -49,7 +49,7 @@ compilation is specified by a string called a "spec".  */
 
 #define GITOID_LENGTH_SHA1 20
 #define GITOID_LENGTH_SHA256 32
-#define MAX_LONG_SIZE_STRING_LENGTH 256
+#define MAX_FILE_SIZE_STRING_LENGTH 256
 
 
 
@@ -8157,7 +8157,7 @@ calculate_sha1_omnibor (FILE *dep_file, unsigned char resblock[])
 
   /* This length should be enough for everything up to 64B, which should
      cover long type.  */
-  char buff_for_file_size[MAX_LONG_SIZE_STRING_LENGTH];
+  char buff_for_file_size[MAX_FILE_SIZE_STRING_LENGTH];
   sprintf (buff_for_file_size, "%ld", file_size);
 
   char *init_data = (char *) xcalloc (1, sizeof (char));
@@ -8195,7 +8195,7 @@ calculate_sha256_omnibor (FILE *dep_file, unsigned char resblock[])
 
   /* This length should be enough for everything up to 64B, which should
      cover long type.  */
-  char buff_for_file_size[MAX_LONG_SIZE_STRING_LENGTH];
+  char buff_for_file_size[MAX_FILE_SIZE_STRING_LENGTH];
   sprintf (buff_for_file_size, "%ld", file_size);
 
   char *init_data = (char *) xcalloc (1, sizeof (char));
@@ -8227,6 +8227,12 @@ calculate_sha256_omnibor (FILE *dep_file, unsigned char resblock[])
 void
 get_sha1_gitoid (char **gitoid, FILE *command)
 {
+  /* Each of these arrays should receive a specific line from the
+     output of the readelf tool and 1000 bytes should be enough to
+     cover the entire line (most likely this number could be lower).
+     All 1000 bytes are later copied into these arrays since these
+     lines potentially contain hashes, which could have null
+     terminating characters (therefore, strlen is not satisfactory).  */
   char line[1000], line1[1000], line2[1000];
   int line_cnt = 0;
   bool flag = false;
@@ -8295,6 +8301,12 @@ get_sha1_gitoid (char **gitoid, FILE *command)
 void
 get_sha256_gitoid (char **gitoid, FILE *command)
 {
+  /* Each of these arrays should receive a specific line from the
+     output of the readelf tool and 1000 bytes should be enough to
+     cover the entire line (most likely this number could be lower).
+     All 1000 bytes are later copied into these arrays since these
+     lines potentially contain hashes, which could have null
+     terminating characters (therefore, strlen is not satisfactory).  */
   char line[1000], line1[1000], line2[1000], line3[1000];
   int line_cnt = 0;
   bool flag = false;
