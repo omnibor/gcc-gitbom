@@ -8216,6 +8216,8 @@ void
 elf_record_omnibor_write_gitoid (std::string gitoid_sha1,
 				 std::string gitoid_sha256)
 {
+  if (omnibor_section == NULL)
+    return;
   switch_to_section (omnibor_section);
 
   char buff_for_owner_size[4];
