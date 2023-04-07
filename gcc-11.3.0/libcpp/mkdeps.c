@@ -729,7 +729,8 @@ calculate_sha256_omnibor_with_contents (std::string contents,
    calculate the gitoid of that OmniBOR Document file.  Currently, supported
    hash functions are SHA1 and SHA256, so hash_size has to be either 20 (SHA1)
    or 32 (SHA256), while hash_func_type has to be either 0 (SHA1) or 1
-   (SHA256).  */
+   (SHA256).  If any error occurs during the creation of the OmniBOR Document
+   file, an empty string is returned.  */
 
 static std::string
 create_omnibor_document_file (std::string new_file_contents,
@@ -790,6 +791,8 @@ create_omnibor_document_file (std::string new_file_contents,
 	     information is not written.  */
 	  /* TODO: Maybe put a message here that a specified path, in which
 	     the OmniBOR information should be stored, is illegal.  */
+	  /* TODO: In case of an error, if any directories were created,
+	     remove them.  */
           if (final_dir == NULL)
             {
               close_all_directories_in_path (dirs);
@@ -872,11 +875,15 @@ create_omnibor_document_file (std::string new_file_contents,
   new_file_path = path_dir + "/" + name.substr (2, std::string::npos);
 
   FILE *new_file = fopen (new_file_path.c_str (), "w");
+  if (new_file != NULL)
+    {
+      fwrite (new_file_contents.c_str (), sizeof(char),
+	      new_file_contents.length (), new_file);
+      fclose (new_file);
+    }
+  else
+    name = "";
 
-  fwrite (new_file_contents.c_str (), sizeof(char), new_file_contents.length (),
-	  new_file);
-
-  fclose (new_file);
   closedir (dir_four);
   closedir (dir_three);
   closedir (dir_two);
@@ -904,6 +911,8 @@ make_write_sha1_omnibor (const cpp_reader *pfile, const char *result_dir)
   for (unsigned ix = 0; ix != pfile->deps->deps.size (); ix++)
     {
       FILE *dep_file = fopen (pfile->deps->deps[ix], "rb");
+      if (dep_file == NULL)
+	continue;
       unsigned char resblock[GITOID_LENGTH_SHA1];
 
       calculate_sha1_omnibor (dep_file, resblock);
@@ -950,6 +959,8 @@ make_write_sha256_omnibor (const cpp_reader *pfile, const char *result_dir)
   for (unsigned ix = 0; ix != pfile->deps->deps.size (); ix++)
     {
       FILE *dep_file = fopen (pfile->deps->deps[ix], "rb");
+      if (dep_file == NULL)
+	continue;
       unsigned char resblock[GITOID_LENGTH_SHA256];
 
       calculate_sha256_omnibor (dep_file, resblock);
