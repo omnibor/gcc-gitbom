@@ -8521,6 +8521,13 @@ create_sha1_symlink (int is_omnibor_option_enabled, char *option_dir)
   low_ch[1] = '\0';
 
   FILE *file_executable = fopen (output_file, "rb");
+  if (file_executable == NULL)
+    {
+      free (low_ch);
+      free (high_ch);
+      free (gitoid_exec_sha1);
+      return;
+    }
   unsigned char resblock[GITOID_LENGTH_SHA1];
 
   calculate_sha1_omnibor (file_executable, resblock);
@@ -8612,6 +8619,13 @@ create_sha256_symlink (int is_omnibor_option_enabled, char *option_dir)
   low_ch[1] = '\0';
 
   FILE *file_executable = fopen (output_file, "rb");
+  if (file_executable == NULL)
+    {
+      free (low_ch);
+      free (high_ch);
+      free (gitoid_exec_sha256);
+      return;
+    }
   unsigned char resblock[GITOID_LENGTH_SHA256];
 
   calculate_sha256_omnibor (file_executable, resblock);

@@ -1369,6 +1369,9 @@ c_common_finish (void)
         }
       if (gitoid_sha1 != "" && gitoid_sha256 != "")
 	elf_record_omnibor_write_gitoid (gitoid_sha1, gitoid_sha256);
+      else
+	fatal_error (input_location,
+		     "Error in creation of OmniBOR Document files");
     }
 
   /* For performance, avoid tearing down cpplib's internal structures
