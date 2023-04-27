@@ -2117,6 +2117,9 @@ static bool in_at_file = false;
 /* Were the options -c, -S or -E passed.  */
 static int have_c = 0;
 
+/* Was the option -c passed.  */
+static int have_exactly_c = 0;
+
 /* Was the option -o passed.  */
 static int have_o = 0;
 
@@ -4808,8 +4811,9 @@ process_command (unsigned int decoded_options_count,
     {
       switch (decoded_options[j].opt_index)
 	{
-	case OPT_S:
 	case OPT_c:
+	  have_exactly_c = 1;
+	case OPT_S:
 	case OPT_E:
 	  have_c = 1;
 	  break;
@@ -8163,7 +8167,8 @@ omnibor_assembler_option_check (void)
   char *option_dir = (char *) xcalloc (1, sizeof (char));
   is_omnibor_option_specified (&is_omnibor_option_enabled, &option_dir);
 
-  if ((is_c_option_specified () || !have_c) &&
+  if ((have_exactly_c || !have_c) &&
+       strcmp ("c", input_suffix) == 0 &&
      ((env.get ("OMNIBOR_DIR") && strlen (env.get ("OMNIBOR_DIR")) > 0) ||
        is_omnibor_option_enabled == 1 || is_omnibor_option_enabled == 2))
     add_assembler_option ("--omnibor-tempfile", 18);
@@ -11828,6 +11833,7 @@ driver::finalize ()
   clear_args ();
 
   have_c = 0;
+  have_exactly_c = 0;
   have_o = 0;
 
   temp_names = NULL;
