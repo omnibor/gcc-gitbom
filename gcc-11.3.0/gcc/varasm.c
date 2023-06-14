@@ -8163,8 +8163,7 @@ void
 elf_record_omnibor (void)
 {
   omnibor_section = get_section (targetm.asm_out.record_omnibor_section,
-				 SECTION_WRITE | SECTION_MERGE
-				 | SECTION_STRINGS | (SECTION_ENTSIZE & 1), NULL);
+				 SECTION_WRITE, NULL);
   switch_to_section (omnibor_section);
 }
 
