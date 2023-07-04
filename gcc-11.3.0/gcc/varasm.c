@@ -8155,9 +8155,10 @@ elf_record_gcc_switches (const char *options)
 
 /* This function provides a possible implementation of the
    TARGET_ASM_RECORD_OMNIBOR target hook for ELF targets.  When triggered
-   by -frecord-omnibor, it creates a new mergeable, string section in the
-   assembler output file called TARGET_ASM_RECORD_OMNIBOR_SECTION which
-   contains the gitoid of the OmniBOR Document file.  */
+   by -frecord-omnibor=<dir> or OMNIBOR_DIR environment variable, it
+   creates a new section in the assembler output file called
+   TARGET_ASM_RECORD_OMNIBOR_SECTION which contains the gitoid of the
+   OmniBOR Document file.  */
 
 void
 elf_record_omnibor (void)

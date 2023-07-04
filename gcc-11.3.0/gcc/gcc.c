@@ -8053,20 +8053,6 @@ omnibor_find_char_from_pos (unsigned start_pos, char c, const char *str)
   return -1;
 }
 
-/* Return the position of the last occurrence of char c in the entire
-   str string, otherwise -1.  */
-
-static int
-omnibor_find_last_of (char c, const char *str)
-{
-  int ret = -1;
-  for (unsigned ix = 0; ix < strlen (str); ix++)
-    if (str[ix] == c)
-      ret = ix;
-
-  return ret;
-}
-
 /* Get the substring of length len of the str2 string starting from
    the start position and put it in the str1 string.  */
 
@@ -8110,11 +8096,11 @@ is_c_option_specified (void)
   return false;
 }
 
-/* Stores 1 if the -frecord-omnibor option is specified in the
-   COLLECT_GCC_OPTIONS environment variable, 2 if -frecord-omnibor=<dir>
-   is specified or 0 otherwise in the memory pointed to by
-   is_omnibor_enabled argument.  If -frecord-omnibor=<dir> is specified,
-   <dir> is stored in the memory pointed to by dir.  */
+/* Stores 1 if the -frecord-omnibor=<dir> option is specified in the
+   COLLECT_GCC_OPTIONS environment variable or 0 otherwise, in the
+   memory pointed to by is_omnibor_enabled argument.  If
+   -frecord-omnibor=<dir> is specified, <dir> is stored in the
+   memory pointed to by dir.  */
 
 void
 is_omnibor_option_specified (int *is_omnibor_enabled, char **dir)
@@ -8129,16 +8115,9 @@ is_omnibor_option_specified (int *is_omnibor_enabled, char **dir)
       if (strncmp ("'-frecord-omnibor=", temp,
 		   strlen ("'-frecord-omnibor=")) == 0)
 	{
-	  *is_omnibor_enabled = 2;
+	  *is_omnibor_enabled = 1;
 	  omnibor_substr (&temp, old_i + 18, i - old_i - 18 - 1, gcc_options);
 	  omnibor_set_contents (dir, temp, strlen (temp));
-	  free (temp);
-	  return;
-	}
-      if (strcmp ("'-frecord-omnibor'", temp) == 0)
-	{
-	  *is_omnibor_enabled = 1;
-	  omnibor_set_contents (dir, "", 0);
 	  free (temp);
 	  return;
 	}
@@ -8170,7 +8149,7 @@ omnibor_assembler_option_check (void)
   if ((have_exactly_c || !have_c) &&
        strcmp ("c", input_suffix) == 0 &&
      ((env.get ("OMNIBOR_DIR") && strlen (env.get ("OMNIBOR_DIR")) > 0) ||
-       is_omnibor_option_enabled == 1 || is_omnibor_option_enabled == 2))
+       is_omnibor_option_enabled == 1))
     add_assembler_option ("--omnibor-tempfile", 18);
   free (option_dir);
 }
@@ -8445,97 +8424,26 @@ get_omnibor_document_file_gitoid (char **gitoid, unsigned ind)
   free (command_str);
 }
 
-/* Get the path of the directory where the resulting object file will be
-   stored, because the OmniBOR information should be stored there as well,
-   in the default case (when OMNIBOR_DIR environment variable is not set
-   and -frecord-omnibor=<arg> is not used, but -frecord-omnibor is used
-   instead).  */
-
-void
-omnibor_get_object_destdir (const char *gcc_opts, char **res)
-{
-  char *path = (char *) xcalloc (1, sizeof (char));
-  char *temp = (char *) xcalloc (1, sizeof (char));
-
-  int old_i = 0, i = 0;
-  while ((i = omnibor_find_char_from_pos (i, ' ', gcc_opts)) != -1)
-    {
-      omnibor_substr (&temp, old_i, i - old_i, gcc_opts);
-      if (strcmp ("'-o'", temp) == 0)
-	{
-	  i = i + 1;
-	  old_i = i;
-
-	  if ((i = omnibor_find_char_from_pos (i, ' ', gcc_opts)) != -1)
-	    {
-	      omnibor_substr (&temp, old_i + 1, i - old_i - 2, gcc_opts);
-	      omnibor_set_contents (&path, temp, strlen (temp));
-	      i = i + 1;
-	      old_i = i;
-	    }
-	}
-      else
-	{
-	  i = i + 1;
-	  old_i = i;
-	}
-    }
-
-  /* Last argument cannot be '-o' because gcc error will be raised that a
-     filename is missing after that option in that case.  */
-  i = -1;
-
-  /* If there was a valid '-o' option, parse the directory part of the path
-     and put it in the res parameter.  */
-  if ((i = omnibor_find_last_of ('/', path)) != -1)
-    {
-      omnibor_substr (&temp, 0, i, path);
-      omnibor_set_contents (res, temp, strlen (temp));
-    }
-  else
-    omnibor_set_contents (res, "", 0);
-
-  free (temp);
-  free (path);
-}
-
 /* Find the directory in which the OmniBOR information should be stored
-   and put it in option_dir.  If the OMNIBOR_DIR environment variable is
-   set, the OmniBOR information should be stored in the directory which
-   represents its value, otherwise check is_omnibor_option_enabled.  If
-   is_omnibor_option_enabled is 2, -frecord-omnibor=<dir> option is used,
-   so the OmniBOR information should be stored in <dir>.  If
-   is_omnibor_option_enabled is 1, -frecord-omnibor option is used, so the
-   OmniBOR information should be stored in the same directory where the
-   object file is generated.  */
+   and put it in option_dir.  If is_omnibor_option_enabled is 1,
+   -frecord-omnibor=<dir> option is used, so the OmniBOR information
+   should be stored in <dir>.  Otherwise, if the OMNIBOR_DIR environment
+   variable is set, the OmniBOR information should be stored in the
+   directory which represents its value.  */
 
 void
 omnibor_find_destdir (char **omnibor_dir, int is_omnibor_option_enabled,
 		      char *option_dir)
 {
-  const char *env_omnibor = env.get ("OMNIBOR_DIR");
-  if (env_omnibor)
-    omnibor_set_contents (omnibor_dir, env_omnibor, strlen (env_omnibor));
+  if (is_omnibor_option_enabled == 1)
+    omnibor_set_contents (omnibor_dir, option_dir, strlen (option_dir));
 
   if (strlen (*omnibor_dir) == 0)
     {
-      if (is_omnibor_option_enabled == 2)
-	{
-	  omnibor_set_contents (omnibor_dir, option_dir,
-			       strlen (option_dir));
-	}
-      else if (is_omnibor_option_enabled == 1)
-	{
-	  char *res = (char *) xcalloc (1, sizeof (char));
-
-	  omnibor_get_object_destdir (env.get ("COLLECT_GCC_OPTIONS"), &res);
-	  if (strlen (res) > 0)
-	    omnibor_set_contents (omnibor_dir, res, strlen (res));
-	  else
-	    omnibor_set_contents (omnibor_dir, "", 0);
-
-	  free (res);
-	}
+      const char *env_omnibor = env.get ("OMNIBOR_DIR");
+      if (env_omnibor)
+	omnibor_set_contents (omnibor_dir, env_omnibor,
+			      strlen (env_omnibor));
     }
 }
 
@@ -8600,13 +8508,16 @@ create_sha1_symlink (int is_omnibor_option_enabled, char *option_dir)
       omnibor_append_to_string (&path_adg, "/.adg", strlen (path_adg),
 				strlen ("/.adg"));
     }
+  /* This point should not be reachable.  */
   else
     {
-      mkdir (".adg", S_IRWXU);
-      omnibor_append_to_string (&path_adg, res_dir, strlen (path_adg),
-				strlen (res_dir));
-      omnibor_append_to_string (&path_adg, ".adg", strlen (path_adg),
-				strlen (".adg"));
+      free (res_dir);
+      free (path_adg);
+      free (gitoid_omnibor_doc);
+      free (low_ch);
+      free (high_ch);
+      free (gitoid_exec_sha1);
+      return;
     }
 
   dir_adg = opendir (path_adg);
@@ -8698,13 +8609,16 @@ create_sha256_symlink (int is_omnibor_option_enabled, char *option_dir)
       omnibor_append_to_string (&path_adg, "/.adg", strlen (path_adg),
 				strlen ("/.adg"));
     }
+  /* This point should not be reachable.  */
   else
     {
-      mkdir (".adg", S_IRWXU);
-      omnibor_append_to_string (&path_adg, res_dir, strlen (path_adg),
-				strlen (res_dir));
-      omnibor_append_to_string (&path_adg, ".adg", strlen (path_adg),
-				strlen (".adg"));
+      free (res_dir);
+      free (path_adg);
+      free (gitoid_omnibor_doc);
+      free (low_ch);
+      free (high_ch);
+      free (gitoid_exec_sha256);
+      return;
     }
 
   dir_adg = opendir (path_adg);
@@ -8743,7 +8657,7 @@ driver::create_symlinks_omnibor () const
       int is_omnibor_option_enabled;
       char *option_dir = (char *) xcalloc (1, sizeof (char));
       is_omnibor_option_specified (&is_omnibor_option_enabled, &option_dir);
-      if (is_omnibor_option_enabled == 1 || is_omnibor_option_enabled == 2
+      if (is_omnibor_option_enabled == 1
 	  || (env.get ("OMNIBOR_DIR") && strlen (env.get ("OMNIBOR_DIR")) > 0))
 	{
 	  create_sha1_symlink (is_omnibor_option_enabled, option_dir);

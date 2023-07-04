@@ -8126,10 +8126,9 @@ artifact.
 
 By default this hook is set to NULL, but an example implementation is
 provided for ELF based targets.  Called @var{elf_record_omnibor},
-it records the gitoid as ASCII text inside a new, string mergeable
-section in the assembler output file.  The name of the new section is
-provided by the @code{TARGET_ASM_RECORD_OMNIBOR_SECTION} target
-hook.
+it records the gitoid as ASCII text inside a new section in the
+assembler output file.  The name of the new section is provided by
+the @code{TARGET_ASM_RECORD_OMNIBOR_SECTION} target hook.
 @end deftypefn
 
 @deftypevr {Target Hook} {const char *} TARGET_ASM_RECORD_OMNIBOR_SECTION

@@ -462,7 +462,7 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #undef  TARGET_ASM_RECORD_GCC_SWITCHES
 #define TARGET_ASM_RECORD_GCC_SWITCHES elf_record_gcc_switches
 
-/* Allow the use of the -frecord-omnibor switch via the
+/* Allow the use of the -frecord-omnibor= switch via the
    elf_record_omnibor function defined in varasm.c.  */
 #undef  TARGET_ASM_RECORD_OMNIBOR
 #define TARGET_ASM_RECORD_OMNIBOR elf_record_omnibor
