@@ -1254,47 +1254,6 @@ get_dump_info (int phase, dump_flags_t *flags)
   return original_dump_file;
 }
 
-/* Get the path of the directory where the resulting object file will be
-   stored, because the OmniBOR information should be stored there as well,
-   in the default case (when OMNIBOR_DIR environment variable is not set
-   and -frecord-omnibor=<arg> is not used).  */
-
-void
-omnibor_get_destdir (const char *collect_gcc_options, std::string *res)
-{
-  std::string path = "";
-  std::string gcc_opts = collect_gcc_options;
-
-  size_t i = 0;
-  while ((i = gcc_opts.find (' ')) != std::string::npos)
-    {
-      if (strcmp ("'-o'", gcc_opts.substr (0, i).c_str ()) == 0)
-        {
-          gcc_opts.erase (0, i + 1);
-
-          if ((i = gcc_opts.find (' ')) != std::string::npos)
-            {
-              path = gcc_opts.substr (1, i - 2);
-	      gcc_opts.erase (0, i + 1);
-            }
-        }
-      else
-        gcc_opts.erase (0, i + 1);
-    }
-  /* Last argument cannot be '-o' because gcc error will be raised that a
-     filename is missing after that option in that case.  */
-  gcc_opts.erase (0, std::string::npos);
-
-  /* If there was a valid '-o' option, parse the directory part of the path
-     and put it in the res parameter.  */
-  i = path.find_last_of ('/');
-
-  if (i != std::string::npos)
-    *res = path.substr (0, i);
-  else
-    *res = "";
-}
-
 /* Common finish hook for the C, ObjC and C++ front ends.  */
 void
 c_common_finish (void)
@@ -1325,32 +1284,21 @@ c_common_finish (void)
   /* If the calculation of the OmniBOR information is enabled, do it here.
      Also, determine the directory to store the OmniBOR files in this order of
      precedence.
-	1. If OMNIBOR_DIR environment variable is set, use this location.
-	2. Use the directory name passed with -frecord-omnibor option.
-	3. Default is to store the OmniBOR files in the same directory as the
-	   object file.  */
-  if (flag_record_omnibor || str_record_omnibor
+	1. Use the directory name passed with -frecord-omnibor= option.
+	2. Use the location set in OMNIBOR_DIR environment variable.  */
+  if (str_record_omnibor
       || (getenv ("OMNIBOR_DIR") && strlen (getenv ("OMNIBOR_DIR")) > 0))
     {
       std::string omnibor_dir = "";
 
-      const char *env_omnibor = getenv ("OMNIBOR_DIR");
-      if (env_omnibor != NULL)
-	omnibor_dir = env_omnibor;
+      if (str_record_omnibor)
+	omnibor_dir = str_record_omnibor;
       if (omnibor_dir == "")
-        {
-	  if (str_record_omnibor)
-	    omnibor_dir = str_record_omnibor;
-          else
-            {
-              std::string res = "";
-	      omnibor_get_destdir (getenv ("COLLECT_GCC_OPTIONS"), &res);
-              if (res.length () > 0)
-		omnibor_dir = res;
-              else
-		omnibor_dir = "";
-            }
-        }
+	{
+	  const char *env_omnibor = getenv ("OMNIBOR_DIR");
+	  if (env_omnibor != NULL)
+	    omnibor_dir = env_omnibor;
+	}
 
       std::string gitoid_sha1 = "", gitoid_sha256 = "";
       if (omnibor_dir.length () > 0)
@@ -1360,12 +1308,11 @@ c_common_finish (void)
           gitoid_sha256 =
 		deps_write_sha256_omnibor (parse_in, omnibor_dir.c_str());
         }
+      /* This else should be unreachable.  */
       else
         {
-          gitoid_sha1 =
-		deps_write_sha1_omnibor (parse_in, NULL);
-          gitoid_sha256 =
-		deps_write_sha256_omnibor (parse_in, NULL);
+	  gitoid_sha1 = "";
+	  gitoid_sha256 = "";
         }
       if (gitoid_sha1 != "" && gitoid_sha256 != "")
 	elf_record_omnibor_write_gitoid (gitoid_sha1, gitoid_sha256);

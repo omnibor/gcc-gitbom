@@ -2321,9 +2321,8 @@ common_handle_option (struct gcc_options *opts,
 		      diagnostic_context *dc,
 		      void (*target_option_override_hook) (void))
 {
-  if (strcmp ("-frecord-omnibor", decoded->orig_option_with_args_text) == 0
-      || strncmp ("-frecord-omnibor=", decoded->orig_option_with_args_text,
-		  strlen ("-frecord-omnibor=")) == 0
+  if (strncmp ("-frecord-omnibor=", decoded->orig_option_with_args_text,
+	       strlen ("-frecord-omnibor=")) == 0
       || (getenv ("OMNIBOR_DIR") && strlen (getenv ("OMNIBOR_DIR")) > 0))
     set_omnibor_enabled (true);
 

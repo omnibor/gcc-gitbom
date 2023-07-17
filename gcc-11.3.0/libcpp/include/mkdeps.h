@@ -71,14 +71,12 @@ extern void deps_write (const cpp_reader *, FILE *, unsigned int);
 
 /* Write out a deps buffer to the SHA1 OmniBOR Document file in a required
    format.  Second argument holds the path to a directory in which
-   the SHA1 OmniBOR Document file is to be stored or NULL, if the default
-   location is desired (same location as the object file).  */
+   the SHA1 OmniBOR Document file is to be stored.  */
 extern std::string deps_write_sha1_omnibor (const cpp_reader *, const char *);
 
 /* Write out a deps buffer to the SHA256 OmniBOR Document file in a required
    format.  Second argument holds the path to a directory in which
-   the SHA256 OmniBOR Document file is to be stored or NULL, if the default
-   location is desired (same location as the object file).  */
+   the SHA256 OmniBOR Document file is to be stored.  */
 extern std::string deps_write_sha256_omnibor (const cpp_reader *, const char *);
 
 /* Write out a deps buffer to a file, in a form that can be read back

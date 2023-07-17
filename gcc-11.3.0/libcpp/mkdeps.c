@@ -806,12 +806,13 @@ create_omnibor_document_file (std::string new_file_contents,
 	      mkdirat (dfd1, "objects", S_IRWXU);
             }
         }
+      /* This point should not be reachable.  */
       else
-	mkdir ("objects", S_IRWXU);
+	return "";
     }
-  /* Put the OmniBOR Document file in the current working directory.  */
+  /* This point should not be reachable.  */
   else
-    mkdir ("objects", S_IRWXU);
+    return "";
 
   DIR *dir_two = opendir (path_objects.c_str ());
   if (dir_two == NULL)
