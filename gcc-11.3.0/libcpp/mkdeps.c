@@ -407,6 +407,7 @@ make_write (const cpp_reader *pfile, FILE *fp, unsigned int colmax)
   if (d->deps.size ())
     {
       column = make_write_vec (d->targets, fp, 0, colmax, d->quote_lwm);
+
       if (CPP_OPTION (pfile, deps.modules) && d->cmi_name)
 	column = make_write_name (d->cmi_name, fp, column, colmax);
       fputs (":", fp);
@@ -725,16 +726,178 @@ calculate_sha256_omnibor_with_contents (std::string contents,
   delete [] init_data_char_array;
 }
 
+/* OmniBOR structure which represents a pair of a dependency filename and
+   its gitoid.  */
+
+class omnibor_dep
+{
+public:
+
+  omnibor_dep (std::string name1, std::string gitoid1)
+    : name (name1), gitoid (gitoid1)
+  {}
+  ~omnibor_dep ()
+  {}
+
+  std::string name;
+  std::string gitoid;
+};
+
+static bool
+omnibor_cmp (const class omnibor_dep *first, const class omnibor_dep *second)
+{
+  return first->gitoid < second->gitoid;
+}
+
+/* Get the path of the directory where the resulting output file will be
+   stored.  Also, fill the memory pointed to by is_E_or_S_or_c with 3 if
+   -E option is specified, 2 if -S option is specified, 1 if -c option
+   is specified, or 0 otherwise (if the linking is done as well).  */
+
+static std::string
+omnibor_get_outfile_name (const char *gcc_opts, int *is_E_or_S_or_c)
+{
+  std::string gcc_opts_str = gcc_opts;
+  std::string temp = "", path = "";
+  *is_E_or_S_or_c = 0;
+
+  size_t old_i = 0, i = 0;
+  while ((i = gcc_opts_str.find_first_of (' ')) != std::string::npos)
+    {
+      temp = gcc_opts_str.substr (old_i, i - old_i);
+
+      if (temp.compare (std::string ("'-o'")) == 0)
+	{
+	  gcc_opts_str = gcc_opts_str.substr (i + 1, std::string::npos);
+	  i = old_i = 0;
+
+	  if ((i = gcc_opts_str.find_first_of (' ')) != std::string::npos)
+	    {
+	      path = gcc_opts_str.substr (old_i + 1, i - old_i - 2);
+
+	      gcc_opts_str = gcc_opts_str.substr (i + 1, std::string::npos);
+	      i = old_i = 0;
+	    }
+	  continue;
+	}
+
+      if (temp.compare (std::string ("'-E'")) == 0)
+	*is_E_or_S_or_c = 3;
+      else if (temp.compare (std::string ("'-S'")) == 0)
+	*is_E_or_S_or_c = 2;
+      else if (temp.compare (std::string ("'-c'")) == 0)
+	*is_E_or_S_or_c = 1;
+
+      gcc_opts_str = gcc_opts_str.substr (i + 1, std::string::npos);
+      i = old_i = 0;
+    }
+
+  return path;
+}
+
+/* Create a file containing the metadata for the process started by the GCC
+   command, in the OmniBOR context.  */
+
+static bool
+create_omnibor_metadata_file (const cpp_reader *pfile,
+			      std::string filename,
+			      std::vector<class omnibor_dep *> vect_file_contents)
+{
+  FILE *metadata_file = fopen (filename.c_str (), "w");
+  if (metadata_file != NULL)
+    {
+      int is_E_or_S_or_c = 0;
+
+      fwrite ("outfile: path: ", sizeof (char), strlen ("outfile: path: "),
+	      metadata_file);
+
+      std::string outfile_name =
+		omnibor_get_outfile_name (getenv ("COLLECT_GCC_OPTIONS"),
+						  &is_E_or_S_or_c);
+      if (outfile_name == "")
+	{
+	  /* Option -o is not specified, so the name of the output file has to
+	     to be deducted from the input file or be a.out in the case when
+	     linking is done as well.  */
+	  if (pfile->deps->deps.size () > 0)
+	    {
+	      /* Case when linking is done as well.  */
+	      if (is_E_or_S_or_c == 0)
+		outfile_name = "a.out";
+	      /* Case when -c option is used.  */
+	      else if (is_E_or_S_or_c == 1)
+		{
+		  std::string infile_name = pfile->deps->deps[0];
+		  outfile_name =
+			infile_name.substr (0, infile_name.length() - 2);
+		  outfile_name = outfile_name + ".o";
+		}
+	      /* Case when -S option is used.  */
+	      else if (is_E_or_S_or_c == 2)
+		{
+		  std::string infile_name = pfile->deps->deps[0];
+		  outfile_name =
+			infile_name.substr (0, infile_name.length() - 2);
+		  outfile_name = outfile_name + ".s";
+		}
+	      /* Case when -E option is used.  In this case, the output file
+		 does not exist, because the preprocessed file will be
+		 outputed to stdout or stderr.  */
+	      else
+		outfile_name = "not available";
+	    }
+	  else
+	    outfile_name = "not available";
+	}
+
+      if (outfile_name.compare ("not available") != 0)
+	{
+	  char outfile_name_abs[PATH_MAX];
+	  realpath (outfile_name.c_str (), outfile_name_abs);
+	  fwrite (outfile_name_abs, sizeof (char), strlen (outfile_name_abs),
+		  metadata_file);
+	}
+      else
+	fwrite (outfile_name.c_str (), sizeof (char), outfile_name.length (),
+		metadata_file);
+
+      fwrite ("\n", sizeof (char), strlen ("\n"), metadata_file);
+
+      for (unsigned ix = 0; ix != vect_file_contents.size (); ix++)
+	{
+	  std::string infile_name = vect_file_contents[ix]->name;
+	  char infile_name_abs[PATH_MAX];
+	  realpath (infile_name.c_str (), infile_name_abs);
+	  std::string in_line = "infile: " + vect_file_contents[ix]->gitoid +
+				" path: " + infile_name_abs + "\n";
+	  fwrite (in_line.c_str (), sizeof (char), in_line.length (),
+		  metadata_file);
+	}
+
+      fwrite ("build_cmd: not available\n", sizeof (char),
+	      strlen ("build_cmd: not available\n"),
+	      metadata_file);
+
+      fclose (metadata_file);
+    }
+  else
+    return false;
+
+  return true;
+}
+
 /* Create the OmniBOR Document file using the gitoids of the dependencies and
-   calculate the gitoid of that OmniBOR Document file.  Currently, supported
-   hash functions are SHA1 and SHA256, so hash_size has to be either 20 (SHA1)
-   or 32 (SHA256), while hash_func_type has to be either 0 (SHA1) or 1
-   (SHA256).  If any error occurs during the creation of the OmniBOR Document
+   calculate the gitoid of that OmniBOR Document file.  In addition, create
+   a file which contains the metadata for the compilation process.  Currently,
+   supported hash functions are SHA1 and SHA256, so hash_size has to be either
+   20 (SHA1) or 32 (SHA256), while hash_func_type has to be either 0 (SHA1) or
+   1 (SHA256).  If any error occurs during the creation of the OmniBOR Document
    file, an empty string is returned.  */
 
 static std::string
-create_omnibor_document_file (std::string new_file_contents,
-			      std::vector<std::string> vect_file_contents,
+create_omnibor_document_file (const cpp_reader *pfile,
+			      std::string new_file_contents,
+			      std::vector<class omnibor_dep *> vect_file_contents,
 			      unsigned hash_size,
 			      unsigned hash_func_type,
 			      const char *result_dir)
@@ -747,7 +910,7 @@ create_omnibor_document_file (std::string new_file_contents,
   for (unsigned ix = 0; ix != vect_file_contents.size (); ix++)
     {
       new_file_contents += "blob ";
-      new_file_contents += vect_file_contents[ix];
+      new_file_contents += vect_file_contents[ix]->gitoid;
       new_file_contents += "\n";
     }
 
@@ -885,6 +1048,11 @@ create_omnibor_document_file (std::string new_file_contents,
   else
     name = "";
 
+  if (!create_omnibor_metadata_file (pfile,
+				     new_file_path + ".metadata",
+				     vect_file_contents))
+    name = "";
+
   closedir (dir_four);
   closedir (dir_three);
   closedir (dir_two);
@@ -906,7 +1074,7 @@ make_write_sha1_omnibor (const cpp_reader *pfile, const char *result_dir)
 {
   static const char *const lut = "0123456789abcdef";
   std::string new_file_contents = "gitoid:blob:sha1\n";
-  std::vector<std::string> vect_file_contents;
+  std::vector<class omnibor_dep *> vect_file_contents;
   std::string temp_file_contents;
 
   for (unsigned ix = 0; ix != pfile->deps->deps.size (); ix++)
@@ -931,16 +1099,26 @@ make_write_sha1_omnibor (const cpp_reader *pfile, const char *result_dir)
           temp_file_contents += lut[low];
         }
 
-      vect_file_contents.push_back (temp_file_contents);
+      class omnibor_dep *dep_pair =
+		new omnibor_dep (std::string (pfile->deps->deps[ix]),
+				 temp_file_contents);
+      vect_file_contents.push_back (dep_pair);
     }
 
-  std::sort (vect_file_contents.begin (), vect_file_contents.end ());
+  std::sort (vect_file_contents.begin (), vect_file_contents.end (),
+	     omnibor_cmp);
 
-  return create_omnibor_document_file (new_file_contents,
-				       vect_file_contents,
-				       GITOID_LENGTH_SHA1,
-				       0,
-				       result_dir);
+  std::string gitoid = create_omnibor_document_file (pfile,
+						     new_file_contents,
+						     vect_file_contents,
+						     GITOID_LENGTH_SHA1,
+						     0,
+						     result_dir);
+
+  for (unsigned ix = 0; ix != vect_file_contents.size (); ix++)
+    delete vect_file_contents[ix];
+
+  return gitoid;
 }
 
 /* Calculate the gitoids of all the dependencies of the resulting object
@@ -954,7 +1132,7 @@ make_write_sha256_omnibor (const cpp_reader *pfile, const char *result_dir)
 {
   static const char *const lut = "0123456789abcdef";
   std::string new_file_contents = "gitoid:blob:sha256\n";
-  std::vector<std::string> vect_file_contents;
+  std::vector<class omnibor_dep *> vect_file_contents;
   std::string temp_file_contents;
 
   for (unsigned ix = 0; ix != pfile->deps->deps.size (); ix++)
@@ -979,16 +1157,26 @@ make_write_sha256_omnibor (const cpp_reader *pfile, const char *result_dir)
           temp_file_contents += lut[low];
         }
 
-      vect_file_contents.push_back (temp_file_contents);
+      class omnibor_dep *dep_pair =
+		new omnibor_dep (std::string (pfile->deps->deps[ix]),
+				 temp_file_contents);
+      vect_file_contents.push_back (dep_pair);
     }
 
-  std::sort (vect_file_contents.begin (), vect_file_contents.end ());
+  std::sort (vect_file_contents.begin (), vect_file_contents.end (),
+	     omnibor_cmp);
 
-  return create_omnibor_document_file (new_file_contents,
-				       vect_file_contents,
-				       GITOID_LENGTH_SHA256,
-				       1,
-				       result_dir);
+  std::string gitoid = create_omnibor_document_file (pfile,
+						     new_file_contents,
+						     vect_file_contents,
+						     GITOID_LENGTH_SHA256,
+						     1,
+						     result_dir);
+
+  for (unsigned ix = 0; ix != vect_file_contents.size (); ix++)
+    delete vect_file_contents[ix];
+
+  return gitoid;
 }
 
 /* Write out dependencies according to the selected format (which is
