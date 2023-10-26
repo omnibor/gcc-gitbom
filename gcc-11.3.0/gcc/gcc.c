@@ -43,8 +43,18 @@ compilation is specified by a string called a "spec".  */
 #include "opts.h"
 #include "filenames.h"
 #include "spellcheck.h"
+#include "sha1.h"
+#include "sha256.h"
 
 
+
+#define GITOID_LENGTH_SHA1 20
+#define GITOID_LENGTH_SHA256 32
+#define MAX_FILE_SIZE_STRING_LENGTH 256
+
+/* Command line passed by the user.  This is not NULL only when
+   OmniBOR calculation is enabled.  */
+static char *omnibor_build_cmd = NULL;
 
 /* Manage the manipulation of env vars.
 
@@ -8008,6 +8018,18 @@ compare_files (char *cmpfile[])
   return ret;
 }
 
+/* Append the string str2 to the end of the string str1.  */
+
+static void
+omnibor_append_to_string (char **str1, const char *str2,
+			  unsigned long len1, unsigned long len2)
+{
+  *str1 = (char *) xrealloc
+	(*str1, sizeof (char) * (len1 + len2 + 1));
+  memcpy (*str1 + len1, str2, len2);
+  (*str1)[len1 + len2] = '\0';
+}
+
 /* Set the string str1 to have the contents of the string str2.  */
 
 static void
@@ -8023,7 +8045,7 @@ omnibor_set_contents (char **str1, const char *str2, unsigned long len)
    of char c in str string (start_pos is the first position to check),
    otherwise -1.  */
 
-int
+static int
 omnibor_find_char_from_pos (unsigned start_pos, char c, const char *str)
 {
   if (str)
@@ -8034,10 +8056,27 @@ omnibor_find_char_from_pos (unsigned start_pos, char c, const char *str)
   return -1;
 }
 
+/* Return the position of the last occurrence after start_pos position
+   of char c in str string (start_pos is the first position to check),
+   otherwise -1.  */
+
+static int
+omnibor_find_last_char_from_pos (unsigned start_pos, char c,
+				 const char *str)
+{
+  int ret = -1;
+  if (str)
+    for (unsigned ix = start_pos; ix < strlen (str); ++ix)
+      if (str[ix] == c)
+	ret = ix;
+
+  return ret;
+}
+
 /* Get the substring of length len of the str2 string starting from
    the start position and put it in the str1 string.  */
 
-void
+static void
 omnibor_substr (char **str1, unsigned start, unsigned len,
 		const char *str2)
 {
@@ -8048,6 +8087,82 @@ omnibor_substr (char **str1, unsigned start, unsigned len,
       memcpy (*str1, str2 + start, len);
       (*str1)[len] = '\0';
     }
+}
+
+/* Calculate the SHA1 gitoid using the contents of the given file.  */
+
+static void
+calculate_sha1_omnibor (FILE *dependency_file, unsigned char resblock[])
+{
+  fseek (dependency_file, 0L, SEEK_END);
+  long file_size = ftell (dependency_file);
+  fseek (dependency_file, 0L, SEEK_SET);
+
+  /* This length should be enough for everything up to 64B, which should
+     cover long type.  */
+  char buff_for_file_size[MAX_FILE_SIZE_STRING_LENGTH];
+  sprintf (buff_for_file_size, "%ld", file_size);
+
+  char *init_data = (char *) xcalloc (1, sizeof (char));
+  omnibor_append_to_string (&init_data, "blob ", strlen (init_data),
+			    strlen ("blob "));
+  omnibor_append_to_string (&init_data, buff_for_file_size, strlen (init_data),
+			    strlen (buff_for_file_size));
+  omnibor_append_to_string (&init_data, "\0", strlen (init_data), 1);
+
+  char *file_contents = (char *) xcalloc (file_size, sizeof (char));
+  fread (file_contents, 1, file_size, dependency_file);
+
+  /* Calculate the hash.  */
+  struct sha1_ctx ctx;
+
+  sha1_init_ctx (&ctx);
+
+  sha1_process_bytes (init_data, strlen (init_data) + 1, &ctx);
+  sha1_process_bytes (file_contents, file_size, &ctx);
+
+  sha1_finish_ctx (&ctx, resblock);
+
+  free (file_contents);
+  free (init_data);
+}
+
+/* Calculate the SHA256 gitoid using the contents of the given file.  */
+
+static void
+calculate_sha256_omnibor (FILE *dependency_file, unsigned char resblock[])
+{
+  fseek (dependency_file, 0L, SEEK_END);
+  long file_size = ftell (dependency_file);
+  fseek (dependency_file, 0L, SEEK_SET);
+
+  /* This length should be enough for everything up to 64B, which should
+     cover long type.  */
+  char buff_for_file_size[MAX_FILE_SIZE_STRING_LENGTH];
+  sprintf (buff_for_file_size, "%ld", file_size);
+
+  char *init_data = (char *) xcalloc (1, sizeof (char));
+  omnibor_append_to_string (&init_data, "blob ", strlen (init_data),
+			    strlen ("blob "));
+  omnibor_append_to_string (&init_data, buff_for_file_size, strlen (init_data),
+			    strlen (buff_for_file_size));
+  omnibor_append_to_string (&init_data, "\0", strlen (init_data), 1);
+
+  char *file_contents = (char *) xcalloc (file_size, sizeof (char));
+  fread (file_contents, 1, file_size, dependency_file);
+
+  /* Calculate the hash.  */
+  struct sha256_ctx ctx;
+
+  sha256_init_ctx (&ctx);
+
+  sha256_process_bytes (init_data, strlen (init_data) + 1, &ctx);
+  sha256_process_bytes (file_contents, file_size, &ctx);
+
+  sha256_finish_ctx (&ctx, resblock);
+
+  free (file_contents);
+  free (init_data);
 }
 
 /* Stores 1 if the -frecord-omnibor=<dir> option is specified in the
@@ -8108,6 +8223,322 @@ omnibor_assembler_option_check (void)
   free (option_dir);
 }
 
+/* Complete the OmniBOR metadata file.  Parameter hash_func must be either
+   0 (SHA1 metadata file) or 1 (SHA256 metadata file).  */
+
+static void
+omnibor_complete_metadata_file (bool omnibor_option_enabled,
+				char *option_dir, int hash_func)
+{
+  if (hash_func != 0 && hash_func != 1)
+    return;
+
+  char *filename_path = (char *) xcalloc (1, sizeof (char));
+  char *new_filename_path = (char *) xcalloc (1, sizeof (char));
+
+  if (omnibor_option_enabled)
+    omnibor_set_contents (&filename_path, option_dir, strlen (option_dir));
+  else
+    {
+      const char *env_omnibor = env.get ("OMNIBOR_DIR");
+      if (env_omnibor != NULL)
+	omnibor_set_contents (&filename_path, env_omnibor, strlen (env_omnibor));
+      else
+	{
+	  free (new_filename_path);
+	  free (filename_path);
+	  return;
+	}
+    }
+
+  if (strcmp ("", filename_path) == 0)
+    {
+      free (new_filename_path);
+      free (filename_path);
+      return;
+    }
+
+  omnibor_append_to_string (&filename_path, "/metadata/gnu/",
+			    strlen (filename_path), strlen ("/metadata/gnu/"));
+
+  if (hash_func == 0)
+    omnibor_append_to_string (&filename_path, "gitoid_blob_sha1/",
+			      strlen (filename_path),
+			      strlen ("gitoid_blob_sha1/"));
+  else
+    omnibor_append_to_string (&filename_path, "gitoid_blob_sha256/",
+			      strlen (filename_path),
+			      strlen ("gitoid_blob_sha256/"));
+
+  char *output_file_name = (char *) xcalloc (1, sizeof (char));
+  /* Also create a variable for the name part of the path of the output file,
+     stripped off of the directory part, if it exists.  */
+  char *output_file_name_strip = (char *) xcalloc (1, sizeof (char));
+
+  /* Option -o is not specified, so the name of the output file has to
+     to be deducted from the input file or be a.out in the case when
+     linking is done as well.  */
+  if (output_file == NULL || strcmp ("", output_file) == 0)
+    {
+      /* Case when linking is done as well.  */
+      if (!have_c)
+	omnibor_set_contents (&output_file_name, "a.out", strlen ("a.out"));
+      /* Case when -c option is used.  */
+      else if (have_exactly_c)
+	{
+	  /* TODO: Apart from supporting input file extensions with one
+	     character, support also '.cpp' extension.  */
+	  omnibor_substr (&output_file_name, 0, strlen (gcc_input_filename) - 2,
+			  gcc_input_filename);
+	  omnibor_append_to_string (&output_file_name, ".o",
+				    strlen (output_file_name),
+				    strlen (".o"));
+	}
+      /* Case when -E option is used.  In this case, the output file
+	 does not exist, because the preprocessed file will be
+	 outputed to stdout or stderr.  */
+      else if (have_E)
+	{
+	  free (output_file_name_strip);
+	  free (output_file_name);
+	  free (new_filename_path);
+	  free (filename_path);
+	  return;
+	}
+      /* Case when -S option is used.  */
+      else
+	{
+	  /* TODO: Apart from supporting input file extensions with one
+	     character, support also '.cpp' extension.  */
+	  omnibor_substr (&output_file_name, 0, strlen (gcc_input_filename) - 2,
+			  gcc_input_filename);
+	  omnibor_append_to_string (&output_file_name, ".s",
+				    strlen (output_file_name),
+				    strlen (".s"));
+	}
+      omnibor_set_contents (&output_file_name_strip, output_file_name,
+			    strlen (output_file_name));
+    }
+  /* Option -o is specified, so the name of the output file is taken from
+     that option.  */
+  else
+    {
+      omnibor_set_contents (&output_file_name, output_file,
+			    strlen (output_file));
+
+      /* Extract the name part of the path of the output file.  */
+
+      int pos = omnibor_find_last_char_from_pos (0, '/', output_file);
+      if (pos == -1)
+	omnibor_set_contents (&output_file_name_strip, output_file,
+			      strlen (output_file));
+      else if ((long unsigned) pos + 1 < strlen (output_file))
+	{
+	  char *output_file_strip = (char *) xcalloc (1, sizeof (char));
+	  omnibor_substr (&output_file_strip, pos + 1,
+			  strlen (output_file) - pos - 1,
+			  output_file);
+	  omnibor_set_contents (&output_file_name_strip, output_file_strip,
+				strlen (output_file_strip));
+	  free (output_file_strip);
+	}
+      else
+	{
+	  free (output_file_name_strip);
+	  free (output_file_name);
+	  free (new_filename_path);
+	  free (filename_path);
+	  return;
+	}
+    }
+
+  /* Remember the directory part of the metadata file so that renaming of that
+     file later is easier.  */
+  omnibor_set_contents (&new_filename_path, filename_path,
+			strlen (filename_path));
+  omnibor_append_to_string (&filename_path, output_file_name_strip,
+			    strlen (filename_path),
+			    strlen (output_file_name_strip));
+  omnibor_append_to_string (&filename_path, ".metadata", strlen (filename_path),
+			    strlen (".metadata"));
+
+  FILE *metadata_file = fopen (filename_path, "rb+");
+  if (metadata_file != NULL)
+    {
+      static const char *const lut = "0123456789abcdef";
+      char *gitoid_output_file = (char *) xcalloc (1, sizeof (char));
+      char *high_ch = (char *) xmalloc (sizeof (char) * 2);
+      high_ch[1] = '\0';
+      char *low_ch = (char *) xmalloc (sizeof (char) * 2);
+      low_ch[1] = '\0';
+
+      FILE *output_file_handle = fopen (output_file_name, "rb");
+      if (output_file_handle == NULL)
+	{
+	  free (low_ch);
+	  free (high_ch);
+	  free (gitoid_output_file);
+	  fclose (metadata_file);
+	  free (output_file_name_strip);
+	  free (output_file_name);
+	  free (new_filename_path);
+	  free (filename_path);
+	  return;
+	}
+
+      if (hash_func == 0)
+	{
+	  unsigned char resblock[GITOID_LENGTH_SHA1];
+
+	  calculate_sha1_omnibor (output_file_handle, resblock);
+
+	  for (unsigned i = 0; i != GITOID_LENGTH_SHA1; ++i)
+	    {
+	      high_ch[0] = lut[resblock[i] >> 4];
+	      low_ch[0] = lut[resblock[i] & 15];
+	      omnibor_append_to_string (&gitoid_output_file, high_ch,
+					i * 2, 2);
+	      omnibor_append_to_string (&gitoid_output_file, low_ch,
+					i * 2 + 1, 2);
+	    }
+
+	  omnibor_append_to_string (&new_filename_path, gitoid_output_file,
+				    strlen (new_filename_path),
+				    2 * GITOID_LENGTH_SHA1);
+
+	  /* Add the gitoid of the output file in the appropriate place.  */
+
+	  fseek (metadata_file, 0L, SEEK_END);
+	  long file_size = ftell (metadata_file);
+	  fseek (metadata_file, strlen ("outfile: "), SEEK_SET);
+	  long left_size = file_size - strlen ("outfile: ");
+	  char *temp_buffer = (char *) xmalloc (sizeof (char) * left_size);
+	  fread (temp_buffer, sizeof (char), left_size, metadata_file);
+	  fseek (metadata_file, strlen ("outfile: "), SEEK_SET);
+	  fwrite (gitoid_output_file, sizeof (char),
+		  2 * GITOID_LENGTH_SHA1, metadata_file);
+	  fwrite (temp_buffer, sizeof (char), left_size, metadata_file);
+	  free (temp_buffer);
+
+	  /* Add the build command line in the appropriate place.  */
+
+	  fseek (metadata_file, 0L, SEEK_END);
+	  if (omnibor_build_cmd)
+	    fwrite (omnibor_build_cmd, sizeof (char),
+		    strlen (omnibor_build_cmd), metadata_file);
+	  else
+	    fwrite ("not available", sizeof (char),
+		    strlen ("not available"), metadata_file);
+
+	  fwrite ("\n==== End of raw info for this process\n",
+		  sizeof (char),
+		  strlen ("\n==== End of raw info for this process\n"),
+		  metadata_file);
+	}
+      else
+	{
+	  unsigned char resblock[GITOID_LENGTH_SHA256];
+
+	  calculate_sha256_omnibor (output_file_handle, resblock);
+
+	  for (unsigned i = 0; i != GITOID_LENGTH_SHA256; ++i)
+	    {
+	      high_ch[0] = lut[resblock[i] >> 4];
+	      low_ch[0] = lut[resblock[i] & 15];
+	      omnibor_append_to_string (&gitoid_output_file, high_ch,
+					i * 2, 2);
+	      omnibor_append_to_string (&gitoid_output_file, low_ch,
+					i * 2 + 1, 2);
+	    }
+
+	  omnibor_append_to_string (&new_filename_path, gitoid_output_file,
+				    strlen (new_filename_path),
+				    2 * GITOID_LENGTH_SHA256);
+
+	  /* Add the gitoid of the output file in the appropriate place.  */
+
+	  fseek (metadata_file, 0L, SEEK_END);
+	  long file_size = ftell (metadata_file);
+	  fseek (metadata_file, strlen ("outfile: "), SEEK_SET);
+	  long left_size = file_size - strlen ("outfile: ");
+	  char *temp_buffer = (char *) xmalloc (sizeof (char) * left_size);
+	  fread (temp_buffer, sizeof (char), left_size, metadata_file);
+	  fseek (metadata_file, strlen ("outfile: "), SEEK_SET);
+	  fwrite (gitoid_output_file, sizeof (char),
+		  2 * GITOID_LENGTH_SHA256, metadata_file);
+	  fwrite (temp_buffer, sizeof (char), left_size, metadata_file);
+	  free (temp_buffer);
+
+	  /* Add the build command line in the appropriate place.  */
+
+	  fseek (metadata_file, 0L, SEEK_END);
+	  if (omnibor_build_cmd)
+	    fwrite (omnibor_build_cmd, sizeof (char),
+		    strlen (omnibor_build_cmd), metadata_file);
+	  else
+	    fwrite ("not available", sizeof (char),
+		    strlen ("not available"), metadata_file);
+
+	  fwrite ("\n==== End of raw info for this process\n",
+		  sizeof (char),
+		  strlen ("\n==== End of raw info for this process\n"),
+		  metadata_file);
+	}
+
+      fclose (output_file_handle);
+      free (low_ch);
+      free (high_ch);
+      free (gitoid_output_file);
+      fclose (metadata_file);
+
+      /* Check if a file with the name equal to the new name for the
+	 metadata file already exists.  That is the case when GCC invokes
+	 linker and OmniBOR calculation is enabled there as well, because
+	 both GCC and linker have the same output file, hence the same
+	 gitoid is used to name the metadata file in both tools.  In that
+	 case, remove the file created by linker (for now) before
+	 renaming metadata file in GCC.  */
+      FILE *fp = fopen (new_filename_path, "r");
+      if (fp != NULL)
+	{
+	  fclose (fp);
+	  remove (new_filename_path);
+	}
+
+      rename (filename_path, new_filename_path);
+    }
+
+  free (output_file_name_strip);
+  free (output_file_name);
+  free (new_filename_path);
+  free (filename_path);
+}
+
+/* If OmniBOR concept is enabled, finish the OmniBOR metadata files
+   properly here.  That includes putting the gitoid of the output file
+   in the proper place in the metadata file, renaming the metadata file
+   with that gitoid and adding the build command line in the proper
+   place as well.  */
+
+void
+driver::maybe_finish_omnibor_work () const
+{
+  int is_omnibor_option_enabled;
+  char *option_dir = (char *) xcalloc (1, sizeof (char));
+  is_omnibor_option_specified (&is_omnibor_option_enabled, &option_dir);
+  if (is_omnibor_option_enabled == 1
+      || (env.get ("OMNIBOR_DIR") && strlen (env.get ("OMNIBOR_DIR")) > 0))
+    {
+      omnibor_complete_metadata_file (is_omnibor_option_enabled == 1,
+				      option_dir, 0);
+      omnibor_complete_metadata_file (is_omnibor_option_enabled == 1,
+				      option_dir, 1);
+      if (omnibor_build_cmd)
+	free (omnibor_build_cmd);
+    }
+  free (option_dir);
+}
+
 driver::driver (bool can_finalize, bool debug) :
   explicit_link_files (NULL),
   decoded_options (NULL)
@@ -8155,6 +8586,7 @@ driver::main (int argc, char **argv)
 
   do_spec_on_infiles ();
   maybe_run_linker (argv[0]);
+  maybe_finish_omnibor_work ();
   final_actions ();
   return get_exit_code ();
 }
@@ -8200,6 +8632,34 @@ driver::decode_argv (int argc, const char **argv)
   decode_cmdline_options_to_array (argc, argv,
 				   CL_DRIVER,
 				   &decoded_options, &decoded_options_count);
+
+  if (omnibor_build_cmd)
+    return;
+
+  int i;
+  bool is_omnibor_option_enabled = false;
+  for (i = 0; i < argc; ++i)
+    if (!strncmp (argv[i], "-frecord-omnibor=",
+		  strlen ("-frecord-omnibor=")))
+      is_omnibor_option_enabled = true;
+
+  if (is_omnibor_option_enabled ||
+     (env.get ("OMNIBOR_DIR") && strlen (env.get ("OMNIBOR_DIR")) > 0))
+    {
+      omnibor_build_cmd = (char *) xcalloc (1, sizeof (char));
+      omnibor_append_to_string (&omnibor_build_cmd, argv[0],
+				strlen (omnibor_build_cmd),
+				strlen (argv[0]));
+      for (i = 1; i < argc; ++i)
+	{
+	  omnibor_append_to_string (&omnibor_build_cmd, " ",
+				    strlen (omnibor_build_cmd),
+				    strlen (" "));
+	  omnibor_append_to_string (&omnibor_build_cmd, argv[i],
+				    strlen (omnibor_build_cmd),
+				    strlen (argv[i]));
+	}
+    }
 }
 
 /* Perform various initializations and setup.  */

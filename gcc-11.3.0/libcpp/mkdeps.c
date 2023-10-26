@@ -796,61 +796,129 @@ omnibor_get_outfile_name (const char *gcc_opts, int *is_E_or_S_or_c)
 }
 
 /* Create a file containing the metadata for the process started by the GCC
-   command, in the OmniBOR context.  */
+   command, in the OmniBOR context.  Currently, supported hash functions are
+   SHA1 and SHA256, so hash_func_type has to be either 0 (SHA1) or 1 (SHA256).  */
 
 static bool
 create_omnibor_metadata_file (const cpp_reader *pfile,
-			      std::string filename,
-			      std::vector<class omnibor_dep *> vect_file_contents)
+			      int dfd,
+			      std::string res_dir,
+			      std::vector<class omnibor_dep *> vect_file_contents,
+			      unsigned hash_func_type)
 {
-  FILE *metadata_file = fopen (filename.c_str (), "w");
-  if (metadata_file != NULL)
+  if (hash_func_type != 0 && hash_func_type != 1)
+    return false;
+
+  mkdirat (dfd, "metadata", S_IRWXU);
+
+  std::string path_metadata = res_dir + "/metadata";
+
+  DIR *dir_metadata = opendir (path_metadata.c_str ());
+  if (dir_metadata == NULL)
+    return false;
+
+  int dfd_metadata = dirfd (dir_metadata);
+
+  mkdirat (dfd_metadata, "gnu", S_IRWXU);
+
+  std::string path_gnu = path_metadata + "/gnu";
+  DIR *dir_gnu = opendir (path_gnu.c_str ());
+  if (dir_gnu == NULL)
     {
-      int is_E_or_S_or_c = 0;
+      closedir (dir_metadata);
+      return false;
+    }
 
-      fwrite ("outfile: path: ", sizeof (char), strlen ("outfile: path: "),
-	      metadata_file);
+  int dfd_gnu = dirfd (dir_gnu);
 
-      std::string outfile_name =
+  std::string path_sha = "";
+  DIR *dir_sha = NULL;
+  if (hash_func_type == 0)
+    {
+      mkdirat (dfd_gnu, "gitoid_blob_sha1", S_IRWXU);
+
+      path_sha = path_gnu + "/gitoid_blob_sha1";
+      dir_sha = opendir (path_sha.c_str ());
+      if (dir_sha == NULL)
+	{
+	  closedir (dir_gnu);
+	  closedir (dir_metadata);
+	  return false;
+	}
+    }
+  else
+    {
+      mkdirat (dfd_gnu, "gitoid_blob_sha256", S_IRWXU);
+
+      path_sha = path_gnu + "/gitoid_blob_sha256";
+      dir_sha = opendir (path_sha.c_str ());
+      if (dir_sha == NULL)
+	{
+	  closedir (dir_gnu);
+	  closedir (dir_metadata);
+	  return false;
+	}
+    }
+
+  int is_E_or_S_or_c = 0;
+
+  std::string outfile_name =
 		omnibor_get_outfile_name (getenv ("COLLECT_GCC_OPTIONS"),
 						  &is_E_or_S_or_c);
-      if (outfile_name == "")
-	{
-	  /* Option -o is not specified, so the name of the output file has to
-	     to be deducted from the input file or be a.out in the case when
-	     linking is done as well.  */
-	  if (pfile->deps->deps.size () > 0)
-	    {
-	      /* Case when linking is done as well.  */
-	      if (is_E_or_S_or_c == 0)
-		outfile_name = "a.out";
-	      /* Case when -c option is used.  */
-	      else if (is_E_or_S_or_c == 1)
-		{
-		  std::string infile_name = pfile->deps->deps[0];
-		  outfile_name =
-			infile_name.substr (0, infile_name.length() - 2);
-		  outfile_name = outfile_name + ".o";
-		}
-	      /* Case when -S option is used.  */
-	      else if (is_E_or_S_or_c == 2)
-		{
-		  std::string infile_name = pfile->deps->deps[0];
-		  outfile_name =
-			infile_name.substr (0, infile_name.length() - 2);
-		  outfile_name = outfile_name + ".s";
-		}
-	      /* Case when -E option is used.  In this case, the output file
-		 does not exist, because the preprocessed file will be
-		 outputed to stdout or stderr.  */
-	      else
-		outfile_name = "not available";
-	    }
-	  else
-	    outfile_name = "not available";
-	}
 
-      if (outfile_name.compare ("not available") != 0)
+  if (outfile_name == "")
+    {
+      /* Option -o is not specified, so the name of the output file has
+	 to be deducted from the input file or be a.out in the case when
+	 linking is done as well.  */
+      if (pfile->deps->deps.size () > 0)
+	{
+	  /* Case when linking is done as well.  */
+	  if (is_E_or_S_or_c == 0)
+	    outfile_name = "a.out";
+	  /* Case when -c option is used.  */
+	  else if (is_E_or_S_or_c == 1)
+	    {
+	      std::string infile_name = pfile->deps->deps[0];
+	      /* TODO: Apart from supporting input file extensions with one
+		 character, support also '.cpp' extension.  */
+	      outfile_name =
+			infile_name.substr (0, infile_name.length() - 2);
+	      outfile_name = outfile_name + ".o";
+	    }
+	  /* Case when -S option is used.  */
+	  else if (is_E_or_S_or_c == 2)
+	    {
+	      std::string infile_name = pfile->deps->deps[0];
+	      /* TODO: Apart from supporting input file extensions with one
+		 character, support also '.cpp' extension.  */
+	      outfile_name =
+			infile_name.substr (0, infile_name.length() - 2);
+	      outfile_name = outfile_name + ".s";
+	    }
+	  /* Case when -E option is used.  In this case, the output file
+	     does not exist, because the preprocessed file will be
+	     outputed to stdout or stderr.  */
+	  else
+	    outfile_name = "not_available";
+	}
+      else
+	outfile_name = "not_available";
+    }
+
+  std::string outfile_name_strip =
+	outfile_name.substr (outfile_name.find_last_of ('/') + 1,
+			     std::string::npos);
+
+  std::string full_filename = path_sha + "/" + outfile_name_strip + ".metadata";
+
+  FILE *metadata_file = fopen (full_filename.c_str (), "w");
+  if (metadata_file != NULL)
+    {
+      fwrite ("outfile:  path: ", sizeof (char), strlen ("outfile:  path: "),
+	      metadata_file);
+
+      if (outfile_name.compare ("not_available") != 0)
 	{
 	  char outfile_name_abs[PATH_MAX];
 	  realpath (outfile_name.c_str (), outfile_name_abs);
@@ -858,7 +926,7 @@ create_omnibor_metadata_file (const cpp_reader *pfile,
 		  metadata_file);
 	}
       else
-	fwrite (outfile_name.c_str (), sizeof (char), outfile_name.length (),
+	fwrite ("not available", sizeof (char), strlen ("not available"),
 		metadata_file);
 
       fwrite ("\n", sizeof (char), strlen ("\n"), metadata_file);
@@ -874,15 +942,22 @@ create_omnibor_metadata_file (const cpp_reader *pfile,
 		  metadata_file);
 	}
 
-      fwrite ("build_cmd: not available\n", sizeof (char),
-	      strlen ("build_cmd: not available\n"),
+      fwrite ("build_cmd: ", sizeof (char), strlen ("build_cmd: "),
 	      metadata_file);
 
       fclose (metadata_file);
     }
   else
-    return false;
+    {
+      closedir (dir_sha);
+      closedir (dir_gnu);
+      closedir (dir_metadata);
+      return false;
+    }
 
+  closedir (dir_sha);
+  closedir (dir_gnu);
+  closedir (dir_metadata);
   return true;
 }
 
@@ -930,6 +1005,7 @@ create_omnibor_document_file (const cpp_reader *pfile,
   std::string new_file_path;
   std::string path_objects = "objects";
   DIR *dir_one = NULL;
+  int dfd1 = 0;
   std::vector<DIR *> dirs;
 
   if (result_dir)
@@ -944,7 +1020,7 @@ create_omnibor_document_file (const cpp_reader *pfile,
         {
           std::string res_dir = result_dir;
 	  path_objects = res_dir + "/" + path_objects;
-	  int dfd1 = dirfd (dir_one);
+	  dfd1 = dirfd (dir_one);
 	  mkdirat (dfd1, "objects", S_IRWXU);
         }
       else if (strlen (result_dir) != 0)
@@ -965,7 +1041,7 @@ create_omnibor_document_file (const cpp_reader *pfile,
             {
               std::string res_dir = result_dir;
 	      path_objects = res_dir + "/" + path_objects;
-	      int dfd1 = dirfd (final_dir);
+	      dfd1 = dirfd (final_dir);
 	      mkdirat (dfd1, "objects", S_IRWXU);
             }
         }
@@ -1049,8 +1125,10 @@ create_omnibor_document_file (const cpp_reader *pfile,
     name = "";
 
   if (!create_omnibor_metadata_file (pfile,
-				     new_file_path + ".metadata",
-				     vect_file_contents))
+				     dfd1,
+				     std::string (result_dir),
+				     vect_file_contents,
+				     hash_func_type))
     name = "";
 
   closedir (dir_four);
