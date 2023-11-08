@@ -56,6 +56,11 @@ compilation is specified by a string called a "spec".  */
    OmniBOR calculation is enabled.  */
 static char *omnibor_build_cmd = NULL;
 
+/* The input file which is currently being processed when completing
+   the metadata file in the OmniBOR concept.  This is used only when
+   -c or -S options are specified and -o option is not specified.  */
+static char *omnibor_current_input_file = NULL;
+
 /* Manage the manipulation of env vars.
 
    We poison "getenv" and "putenv", so that all enviroment-handling is
@@ -8288,8 +8293,9 @@ omnibor_complete_metadata_file (bool omnibor_option_enabled,
 	{
 	  /* TODO: Apart from supporting input file extensions with one
 	     character, support also '.cpp' extension.  */
-	  omnibor_substr (&output_file_name, 0, strlen (gcc_input_filename) - 2,
-			  gcc_input_filename);
+	  omnibor_substr (&output_file_name, 0,
+			  strlen (omnibor_current_input_file) - 2,
+			  omnibor_current_input_file);
 	  omnibor_append_to_string (&output_file_name, ".o",
 				    strlen (output_file_name),
 				    strlen (".o"));
@@ -8310,8 +8316,9 @@ omnibor_complete_metadata_file (bool omnibor_option_enabled,
 	{
 	  /* TODO: Apart from supporting input file extensions with one
 	     character, support also '.cpp' extension.  */
-	  omnibor_substr (&output_file_name, 0, strlen (gcc_input_filename) - 2,
-			  gcc_input_filename);
+	  omnibor_substr (&output_file_name, 0,
+			  strlen (omnibor_current_input_file) - 2,
+			  omnibor_current_input_file);
 	  omnibor_append_to_string (&output_file_name, ".s",
 				    strlen (output_file_name),
 				    strlen (".s"));
@@ -8529,10 +8536,32 @@ driver::maybe_finish_omnibor_work () const
   if (is_omnibor_option_enabled == 1
       || (env.get ("OMNIBOR_DIR") && strlen (env.get ("OMNIBOR_DIR")) > 0))
     {
-      omnibor_complete_metadata_file (is_omnibor_option_enabled == 1,
-				      option_dir, 0);
-      omnibor_complete_metadata_file (is_omnibor_option_enabled == 1,
-				      option_dir, 1);
+      omnibor_current_input_file = (char *) xcalloc (1, sizeof (char));
+
+      if (n_infiles > 1 && (have_c && !have_E))
+	for (int i = 0; i < n_infiles; ++i)
+	  {
+	    omnibor_set_contents (&omnibor_current_input_file,
+				  infiles[i].name, strlen (infiles[i].name));
+	    omnibor_complete_metadata_file (is_omnibor_option_enabled == 1,
+					    option_dir, 0);
+	    omnibor_complete_metadata_file (is_omnibor_option_enabled == 1,
+					    option_dir, 1);
+	  }
+      else
+	{
+	  if (have_c && !have_E)
+	    omnibor_set_contents (&omnibor_current_input_file,
+				  gcc_input_filename,
+				  strlen (gcc_input_filename));
+	  omnibor_complete_metadata_file (is_omnibor_option_enabled == 1,
+					  option_dir, 0);
+	  omnibor_complete_metadata_file (is_omnibor_option_enabled == 1,
+					  option_dir, 1);
+	}
+
+      free (omnibor_current_input_file);
+
       if (omnibor_build_cmd)
 	free (omnibor_build_cmd);
     }
