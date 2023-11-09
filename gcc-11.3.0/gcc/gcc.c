@@ -8293,8 +8293,12 @@ omnibor_complete_metadata_file (bool omnibor_option_enabled,
 	{
 	  /* TODO: Apart from supporting input file extensions with one
 	     character, support also '.cpp' extension.  */
-	  omnibor_substr (&output_file_name, 0,
-			  strlen (omnibor_current_input_file) - 2,
+	  int start =
+		omnibor_find_last_char_from_pos (0, '/',
+						 omnibor_current_input_file)
+		+ 1;
+	  omnibor_substr (&output_file_name, start,
+			  strlen (omnibor_current_input_file) - 2 - start,
 			  omnibor_current_input_file);
 	  omnibor_append_to_string (&output_file_name, ".o",
 				    strlen (output_file_name),
@@ -8316,8 +8320,12 @@ omnibor_complete_metadata_file (bool omnibor_option_enabled,
 	{
 	  /* TODO: Apart from supporting input file extensions with one
 	     character, support also '.cpp' extension.  */
-	  omnibor_substr (&output_file_name, 0,
-			  strlen (omnibor_current_input_file) - 2,
+	  int start =
+		omnibor_find_last_char_from_pos (0, '/',
+						 omnibor_current_input_file)
+		+ 1;
+	  omnibor_substr (&output_file_name, start,
+			  strlen (omnibor_current_input_file) - 2 - start,
 			  omnibor_current_input_file);
 	  omnibor_append_to_string (&output_file_name, ".s",
 				    strlen (output_file_name),

@@ -882,8 +882,9 @@ create_omnibor_metadata_file (const cpp_reader *pfile,
 	      std::string infile_name = pfile->deps->deps[0];
 	      /* TODO: Apart from supporting input file extensions with one
 		 character, support also '.cpp' extension.  */
-	      outfile_name =
-			infile_name.substr (0, infile_name.length() - 2);
+	      size_t start = infile_name.find_last_of ('/') + 1;
+	      outfile_name = infile_name.substr (start,
+						 infile_name.length() - 2 - start);
 	      outfile_name = outfile_name + ".o";
 	    }
 	  /* Case when -S option is used.  */
@@ -892,8 +893,9 @@ create_omnibor_metadata_file (const cpp_reader *pfile,
 	      std::string infile_name = pfile->deps->deps[0];
 	      /* TODO: Apart from supporting input file extensions with one
 		 character, support also '.cpp' extension.  */
-	      outfile_name =
-			infile_name.substr (0, infile_name.length() - 2);
+	      size_t start = infile_name.find_last_of ('/') + 1;
+	      outfile_name = infile_name.substr (start,
+						 infile_name.length() - 2 - start);
 	      outfile_name = outfile_name + ".s";
 	    }
 	  /* Case when -E option is used.  In this case, the output file
