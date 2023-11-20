@@ -778,6 +778,14 @@ omnibor_get_outfile_name (const char *gcc_opts, int *is_E_or_S_or_c)
 	      gcc_opts_str = gcc_opts_str.substr (i + 1, std::string::npos);
 	      i = old_i = 0;
 	    }
+	  /* Case when -o option is the last option specified.  */
+	  else
+	    {
+	      path = gcc_opts_str.substr (old_i + 1,
+					  gcc_opts_str.length () - old_i - 2);
+
+	      break;
+	    }
 	  continue;
 	}
 
