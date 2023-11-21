@@ -49,7 +49,7 @@ class driver
   int maybe_print_and_exit () const;
   bool prepare_infiles ();
   void do_spec_on_infiles () const;
-  void create_symlinks_omnibor () const;
+  void maybe_finish_omnibor_work () const;
   void maybe_run_linker (const char *argv0) const;
   void final_actions () const;
   void detect_jobserver () const;
